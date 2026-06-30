@@ -1,0 +1,35 @@
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+.terraform.tfstate.lock.info
+.terraformrc
+terraform.rc
+
+# Terraform input files can contain project IDs or secrets.
+*.tfvars
+*.tfvars.json
+*.auto.tfvars
+*.auto.tfvars.json
+
+# Keep the dependency lock file in source control once Terraform creates it.
+!.terraform.lock.hcl
+
+# Local credentials and environment files must never be committed.
+.env
+.env.*
+*.pem
+*.key
+id_rsa
+id_ed25519
+*credentials*.json
+*service-account*.json
+application_default_credentials.json
+
+# Local editor and operating-system files.
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

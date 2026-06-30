@@ -1,0 +1,9 @@
+# Copy this file to terraform.tfvars and replace the example values.
+project_id = "your-gcp-project-id"
+region     = "europe-west2"
+zone       = "europe-west2-a"
+
+# Optional overrides:
+# instance_name     = "abhis-cka-vm"
+# machine_type      = "e2-small"
+# boot_disk_size_gb = 30
