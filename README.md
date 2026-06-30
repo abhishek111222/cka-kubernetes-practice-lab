@@ -17,6 +17,52 @@ Install these tools on the laptop:
 
 The selected GCP project must have billing enabled and an existing `default` VPC with an SSH firewall rule. The signed-in account needs permission to enable project services and create Compute Engine resources.
 
+## Fresh-clone quick start
+
+Open PowerShell and run:
+
+```powershell
+git clone https://github.com/abhishek111222/cka-kubernetes-practice-lab.git
+Set-Location cka-kubernetes-practice-lab
+Copy-Item terraform.tfvars.example terraform.tfvars
+notepad terraform.tfvars
+.\deploy.ps1
+```
+
+Set at least `project_id` in `terraform.tfvars`, save the file, and close Notepad before running the deployment command. The script handles Terraform initialization, authentication checks, VM creation, Kubernetes bootstrap, and health verification.
+
+When deployment finishes, it prints the exact `gcloud compute ssh` command. After connecting to the VM, verify the lab with:
+
+```bash
+sudo kubectl --kubeconfig /etc/kubernetes/admin.conf get nodes -o wide
+sudo kubectl --kubeconfig /etc/kubernetes/admin.conf get pods -A
+sudo kubectl --kubeconfig /etc/kubernetes/admin.conf top nodes
+sudo kubectl --kubeconfig /etc/kubernetes/admin.conf top pods -A
+```
+
+When finished practising, return to PowerShell in the cloned repository and run:
+
+```powershell
+.\destroy.ps1
+```
+
+Type `DELETE` when prompted. Keep the cloned folder and its local Terraform state until destruction completes.
+
+## Repository layout
+
+| Path | Purpose |
+| --- | --- |
+| `main.tf` | Creates the Compute Engine API setting and Ubuntu VM |
+| `variables.tf` | Defines configurable project, location, VM, disk, and label inputs |
+| `terraform.tfvars.example` | Safe template for local configuration |
+| `deploy.ps1` | One-command create, bootstrap, wait, and verification workflow |
+| `destroy.ps1` | One-command destroy workflow with confirmation |
+| `scripts/gcp-auth.ps1` | Reuses credentials or launches Google login when required |
+| `scripts/bootstrap-kubernetes.sh` | Installs containerd, Kubernetes, Calico, and Metrics Server on the VM |
+| `outputs.tf` | Prints VM addresses, SSH command, and useful cluster commands |
+
+`terraform.tfvars`, Terraform state, saved plans, credentials, and private keys are ignored by Git and must not be committed.
+
 ## Authentication
 
 The deployment and destruction scripts check both credential sets used by this project:
@@ -118,6 +164,28 @@ sudo kubectl --kubeconfig /etc/kubernetes/admin.conf top pods -A
 ```
 
 The default `e2-small` VM has only 2 GB RAM, which is Kubernetes' practical minimum. Change `machine_type` to `e2-medium` if mock workloads encounter memory pressure.
+
+## Troubleshooting
+
+If deployment times out, the error output prints the SSH command needed to inspect the bootstrap log. After connecting, run:
+
+```bash
+sudo tail -n 100 /var/log/cka-bootstrap.log
+```
+
+Useful local checks:
+
+```powershell
+terraform state list
+terraform output
+terraform plan
+```
+
+- `Connection refused` during initial boot is retried automatically.
+- Recreated-VM SSH host-key changes are handled only for the automated lab checks.
+- If Google has revoked or expired credentials, the script opens the required browser login flow.
+- If VM creation reports that the `default` network is missing, create or select a project with a default VPC before retrying.
+- Do not delete `terraform.tfstate` while resources exist; it is how `destroy.ps1` knows what to remove.
 
 ## Remove the billable resources
 
