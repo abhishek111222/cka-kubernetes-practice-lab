@@ -59,6 +59,8 @@ After configuring `terraform.tfvars` and authenticating, run:
 
 This one command initializes and validates Terraform, creates and applies a saved plan, waits for the VM startup script, and verifies both the Kubernetes node and Metrics Server. The complete VM-side installation code is [scripts/bootstrap-kubernetes.sh](scripts/bootstrap-kubernetes.sh); Terraform sends it to Compute Engine as startup-script metadata.
 
+The automated health checks disable strict SSH host-key checking. This is intentional for the disposable lab: deleting and recreating a VM can assign a previously used IP address with a new host key. The destination IP is read directly from Terraform's authenticated GCP state, and no general SSH configuration on the laptop is changed.
+
 If local PowerShell policy blocks scripts, use:
 
 ```powershell

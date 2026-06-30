@@ -64,6 +64,7 @@ while ((Get-Date) -lt $deadline) {
   $marker = & gcloud compute ssh $instanceName `
     --project $projectId `
     --zone $zone `
+    --strict-host-key-checking=no `
     --command "sudo find /var/lib/cka-bootstrap -maxdepth 1 -name '*.complete' -print -quit" `
     --quiet 2>$null
 
@@ -85,6 +86,7 @@ Invoke-NativeCommand -Command "gcloud" -Arguments @(
   "compute", "ssh", $instanceName,
   "--project", $projectId,
   "--zone", $zone,
+  "--strict-host-key-checking=no",
   "--command", "sudo kubectl --kubeconfig /etc/kubernetes/admin.conf get nodes -o wide",
   "--quiet"
 )
@@ -94,6 +96,7 @@ Invoke-NativeCommand -Command "gcloud" -Arguments @(
   "compute", "ssh", $instanceName,
   "--project", $projectId,
   "--zone", $zone,
+  "--strict-host-key-checking=no",
   "--command", "sudo kubectl --kubeconfig /etc/kubernetes/admin.conf top nodes",
   "--quiet"
 )
