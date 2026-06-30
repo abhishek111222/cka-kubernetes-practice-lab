@@ -61,6 +61,10 @@ This one command initializes and validates Terraform, creates and applies a save
 
 The automated health checks disable strict SSH host-key checking. This is intentional for the disposable lab: deleting and recreating a VM can assign a previously used IP address with a new host key. The destination IP is read directly from Terraform's authenticated GCP state, and no general SSH configuration on the laptop is changed.
 
+On Windows, the scripts use the Cloud SDK's `gcloud.cmd` launcher instead of its PowerShell wrapper. This allows the readiness loop to treat temporary SSH errors such as `Connection refused` as expected while the VM boots, retrying until the deployment timeout instead of terminating immediately.
+
+Cluster readiness is based on the node and managed workload rollouts rather than every historical pod. This avoids false failures when Kubernetes replaces a pod during an update and the superseded pod is still terminating.
+
 If local PowerShell policy blocks scripts, use:
 
 ```powershell

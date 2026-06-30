@@ -92,7 +92,9 @@ fi
 
 echo "Waiting for the node and system workloads"
 kubectl wait --for=condition=Ready node --all --timeout=600s
-kubectl wait --for=condition=Ready pod --all --all-namespaces --timeout=600s
+kubectl rollout status daemonset/calico-node -n kube-system --timeout=600s
+kubectl rollout status deployment/calico-kube-controllers -n kube-system --timeout=600s
+kubectl rollout status deployment/coredns -n kube-system --timeout=600s
 kubectl rollout status deployment/metrics-server -n kube-system --timeout=300s
 
 echo "Waiting for the Metrics API to return data"

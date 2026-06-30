@@ -36,7 +36,8 @@ foreach ($command in @("terraform", "gcloud")) {
 }
 
 . (Join-Path $root "scripts\gcp-auth.ps1")
-Ensure-GcpAuthentication
+$gcloudCommand = Get-GcloudCommand
+Ensure-GcpAuthentication -GcloudCommand $gcloudCommand
 
 Write-Host "Initializing and validating Terraform..."
 Invoke-NativeCommand -Command "terraform" -Arguments @("init", "-input=false")
@@ -61,7 +62,7 @@ $deadline = (Get-Date).AddMinutes($TimeoutMinutes)
 $ready = $false
 
 while ((Get-Date) -lt $deadline) {
-  $marker = & gcloud compute ssh $instanceName `
+  $marker = & $gcloudCommand compute ssh $instanceName `
     --project $projectId `
     --zone $zone `
     --strict-host-key-checking=no `
@@ -82,7 +83,7 @@ if (-not $ready) {
 }
 
 Write-Host "Verifying Kubernetes node health..."
-Invoke-NativeCommand -Command "gcloud" -Arguments @(
+Invoke-NativeCommand -Command $gcloudCommand -Arguments @(
   "compute", "ssh", $instanceName,
   "--project", $projectId,
   "--zone", $zone,
@@ -92,7 +93,7 @@ Invoke-NativeCommand -Command "gcloud" -Arguments @(
 )
 
 Write-Host "Verifying Metrics Server..."
-Invoke-NativeCommand -Command "gcloud" -Arguments @(
+Invoke-NativeCommand -Command $gcloudCommand -Arguments @(
   "compute", "ssh", $instanceName,
   "--project", $projectId,
   "--zone", $zone,

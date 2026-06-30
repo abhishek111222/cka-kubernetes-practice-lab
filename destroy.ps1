@@ -35,7 +35,8 @@ foreach ($command in @("terraform", "gcloud")) {
 }
 
 . (Join-Path $root "scripts\gcp-auth.ps1")
-Ensure-GcpAuthentication
+$gcloudCommand = Get-GcloudCommand
+Ensure-GcpAuthentication -GcloudCommand $gcloudCommand
 
 Write-Host "Initializing and validating Terraform..."
 Invoke-NativeCommand -Command "terraform" -Arguments @("init", "-input=false")
