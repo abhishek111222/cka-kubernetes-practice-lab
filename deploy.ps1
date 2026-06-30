@@ -35,15 +35,8 @@ foreach ($command in @("terraform", "gcloud")) {
   }
 }
 
-# Terraform must use the Application Default Credentials created by
-# 'gcloud auth application-default login', not an unrelated service-account key.
-$env:GOOGLE_APPLICATION_CREDENTIALS = $null
-
-Write-Host "Checking Google Application Default Credentials..."
-& gcloud auth application-default print-access-token 2>$null | Out-Null
-if ($LASTEXITCODE -ne 0) {
-  throw "Application Default Credentials are unavailable. Run: gcloud auth application-default login"
-}
+. (Join-Path $root "scripts\gcp-auth.ps1")
+Ensure-GcpAuthentication
 
 Write-Host "Initializing and validating Terraform..."
 Invoke-NativeCommand -Command "terraform" -Arguments @("init", "-input=false")

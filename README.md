@@ -17,14 +17,14 @@ Install these tools on the laptop:
 
 The selected GCP project must have billing enabled and an existing `default` VPC with an SSH firewall rule. The signed-in account needs permission to enable project services and create Compute Engine resources.
 
-## Authenticate the laptop
+## Authentication
 
-Sign in to Google Cloud and create Application Default Credentials for Terraform:
+The deployment and destruction scripts check both credential sets used by this project:
 
-```powershell
-gcloud auth login
-gcloud auth application-default login
-```
+- Google Cloud CLI credentials, used by `gcloud`;
+- Application Default Credentials, used by Terraform.
+
+When valid cached credentials exist, authentication is automatic. If credentials are missing, expired, or revoked, the script opens Google's browser login flow and then continues. Google requires interactive approval in those cases; the project never stores passwords, access tokens, or service-account keys.
 
 Application Default Credentials are stored outside this repository. Do not add credential JSON files here.
 
@@ -115,11 +115,12 @@ The default `e2-small` VM has only 2 GB RAM, which is Kubernetes' practical mini
 
 ## Remove the billable resources
 
-When testing is complete:
+When testing is complete, run:
 
 ```powershell
-terraform plan -destroy -out destroy.tfplan
-terraform apply destroy.tfplan
+.\destroy.ps1
 ```
 
-Terraform intentionally leaves the Compute Engine API enabled when resources are destroyed.
+The script authenticates when necessary, creates a destroy plan, and requires you to type `DELETE` before applying it. For unattended automation, `.\destroy.ps1 -AutoApprove` skips that confirmation and should be used carefully.
+
+Terraform intentionally leaves the Compute Engine API enabled when resources are destroyed. Terraform state is local to this folder, so keep the folder and its state file until resources have been destroyed.
