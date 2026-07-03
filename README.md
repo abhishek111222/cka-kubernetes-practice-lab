@@ -75,6 +75,8 @@ When valid cached credentials exist, authentication is automatic. If credentials
 
 Application Default Credentials are stored outside this repository. Do not add credential JSON files here.
 
+Use `./deploy.ps1` and `./destroy.ps1` rather than invoking Terraform directly. The wrappers ignore `GOOGLE_APPLICATION_CREDENTIALS` for their process so that an unrelated or deleted service-account credential file cannot override the user Application Default Credentials created by `gcloud auth application-default login`. If that environment variable is configured persistently, the wrappers print a warning without changing your user or machine environment.
+
 ## Configure the deployment
 
 Copy the example variables file:
