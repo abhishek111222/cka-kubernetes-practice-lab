@@ -7,8 +7,9 @@ exec > >(tee -a /var/log/cka-bootstrap.log) 2>&1
 KUBERNETES_MINOR="v1.36"
 CALICO_VERSION="v3.32.0"
 METRICS_SERVER_VERSION="v0.8.1"
+HELM_APT_KEY_FINGERPRINT="DDF78C3E6EBB2D2CC223C95C62BA89D07698DBC6"
 POD_NETWORK_CIDR="192.168.0.0/16"
-COMPLETION_MARKER="/var/lib/cka-bootstrap/kubernetes-${KUBERNETES_MINOR}-calico-${CALICO_VERSION}-metrics-${METRICS_SERVER_VERSION}.complete"
+COMPLETION_MARKER="/var/lib/cka-bootstrap/kubernetes-${KUBERNETES_MINOR}-calico-${CALICO_VERSION}-metrics-${METRICS_SERVER_VERSION}-helm.complete"
 
 if [[ -f "${COMPLETION_MARKER}" ]]; then
   echo "Kubernetes bootstrap has already completed."
@@ -39,8 +40,13 @@ sysctl --system
 
 echo "Installing and configuring containerd"
 export DEBIAN_FRONTEND=noninteractive
+
+# Remove the retired BaltoCDN Helm repository if it was configured manually or
+# by an older version of this lab. The current repository is added below.
+rm -f /etc/apt/sources.list.d/helm-stable-debian.list
+
 apt-get update
-apt-get install -y ca-certificates curl gpg containerd
+apt-get install -y apt-transport-https ca-certificates curl gpg containerd
 
 mkdir -p /etc/containerd
 containerd config default >/etc/containerd/config.toml
@@ -61,6 +67,33 @@ apt-get update
 apt-get install -y kubelet kubeadm kubectl
 apt-mark hold kubelet kubeadm kubectl
 systemctl enable kubelet
+
+echo "Installing Helm"
+helm_key_file="$(mktemp)"
+curl -fsSL "https://packages.buildkite.com/helm-linux/helm-debian/gpgkey" \
+  -o "${helm_key_file}"
+
+helm_key_fingerprint="$(
+  gpg --show-keys --with-colons "${helm_key_file}" \
+    | awk -F: '$1 == "fpr" { print $10; exit }'
+)"
+
+if [[ "${helm_key_fingerprint}" != "${HELM_APT_KEY_FINGERPRINT}" ]]; then
+  rm -f "${helm_key_file}"
+  echo "Unexpected Helm APT signing-key fingerprint: ${helm_key_fingerprint}"
+  exit 1
+fi
+
+gpg --dearmor --yes -o /usr/share/keyrings/helm.gpg "${helm_key_file}"
+rm -f "${helm_key_file}"
+
+cat >/etc/apt/sources.list.d/helm-stable-debian.list <<'EOF'
+deb [signed-by=/usr/share/keyrings/helm.gpg] https://packages.buildkite.com/helm-linux/helm-debian/any/ any main
+EOF
+
+apt-get update
+apt-get install -y helm
+helm version --short
 
 if [[ ! -f /etc/kubernetes/admin.conf ]]; then
   echo "Initializing the Kubernetes control plane"

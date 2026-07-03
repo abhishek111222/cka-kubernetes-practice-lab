@@ -7,6 +7,7 @@ This Terraform configuration creates a single-node CKA practice lab:
 - OS Login for SSH access;
 - containerd and a `kubeadm` Kubernetes 1.36 control plane;
 - Calico networking, with the control-plane taint removed so practice workloads can run on the node.
+- Helm, installed from the current Buildkite-hosted Debian repository.
 
 ## Prerequisites
 
@@ -103,11 +104,13 @@ After configuring `terraform.tfvars` and authenticating, run:
 .\deploy.ps1
 ```
 
-This one command initializes and validates Terraform, creates and applies a saved plan, waits for the VM startup script, and verifies both the Kubernetes node and Metrics Server. The complete VM-side installation code is [scripts/bootstrap-kubernetes.sh](scripts/bootstrap-kubernetes.sh); Terraform sends it to Compute Engine as startup-script metadata.
+This one command initializes and validates Terraform, creates and applies a saved plan, waits for the VM startup script, and verifies the Kubernetes node, Metrics Server, and Helm. The complete VM-side installation code is [scripts/bootstrap-kubernetes.sh](scripts/bootstrap-kubernetes.sh); Terraform sends it to Compute Engine as startup-script metadata.
 
 The automated health checks disable strict SSH host-key checking. This is intentional for the disposable lab: deleting and recreating a VM can assign a previously used IP address with a new host key. The destination IP is read directly from Terraform's authenticated GCP state, and no general SSH configuration on the laptop is changed.
 
 On Windows, the scripts use the Cloud SDK's `gcloud.cmd` launcher instead of its PowerShell wrapper. This allows the readiness loop to treat temporary SSH errors such as `Connection refused` as expected while the VM boots, retrying until the deployment timeout instead of terminating immediately.
+
+The software installed inside the VM is defined in [`scripts/bootstrap-kubernetes.sh`](scripts/bootstrap-kubernetes.sh). To add another Ubuntu package later, place its repository setup and `apt-get install` command alongside the Helm installation block, then update `COMPLETION_MARKER` so an existing VM does not skip the changed bootstrap.
 
 Cluster readiness is based on the node and managed workload rollouts rather than every historical pod. This avoids false failures when Kubernetes replaces a pod during an update and the superseded pod is still terminating.
 
@@ -161,6 +164,12 @@ Metrics Server is included, so resource usage commands work after bootstrap:
 ```bash
 sudo kubectl --kubeconfig /etc/kubernetes/admin.conf top nodes
 sudo kubectl --kubeconfig /etc/kubernetes/admin.conf top pods -A
+```
+
+Verify Helm with:
+
+```bash
+helm version --short
 ```
 
 The default `e2-small` VM has only 2 GB RAM, which is Kubernetes' practical minimum. Change `machine_type` to `e2-medium` if mock workloads encounter memory pressure.

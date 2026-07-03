@@ -16,9 +16,19 @@ function Invoke-NativeCommand {
     [string[]]$Arguments
   )
 
-  & $Command @Arguments
-  if ($LASTEXITCODE -ne 0) {
-    throw "Command failed with exit code ${LASTEXITCODE}: $Command $($Arguments -join ' ')"
+  $previousErrorActionPreference = $ErrorActionPreference
+  $ErrorActionPreference = "Continue"
+
+  try {
+    & $Command @Arguments
+    $nativeExitCode = $LASTEXITCODE
+  }
+  finally {
+    $ErrorActionPreference = $previousErrorActionPreference
+  }
+
+  if ($nativeExitCode -ne 0) {
+    throw "Command failed with exit code ${nativeExitCode}: $Command $($Arguments -join ' ')"
   }
 }
 
@@ -62,14 +72,26 @@ $deadline = (Get-Date).AddMinutes($TimeoutMinutes)
 $ready = $false
 
 while ((Get-Date) -lt $deadline) {
-  $marker = & $gcloudCommand compute ssh $instanceName `
-    --project $projectId `
-    --zone $zone `
-    --strict-host-key-checking=no `
-    --command "sudo find /var/lib/cka-bootstrap -maxdepth 1 -name '*.complete' -print -quit" `
-    --quiet 2>$null
+  # SSH can legitimately refuse connections while a new VM is still booting.
+  # Temporarily suppress native stderr so the loop can inspect the exit code
+  # and retry instead of ErrorActionPreference terminating the whole script.
+  $previousErrorActionPreference = $ErrorActionPreference
+  $ErrorActionPreference = "SilentlyContinue"
 
-  if ($LASTEXITCODE -eq 0 -and $marker -match "/var/lib/cka-bootstrap/.+\.complete") {
+  try {
+    $marker = & $gcloudCommand compute ssh $instanceName `
+      --project $projectId `
+      --zone $zone `
+      --strict-host-key-checking=no `
+      --command "sudo find /var/lib/cka-bootstrap -maxdepth 1 -name '*.complete' -print -quit" `
+      --quiet 2>$null
+    $sshExitCode = $LASTEXITCODE
+  }
+  finally {
+    $ErrorActionPreference = $previousErrorActionPreference
+  }
+
+  if ($sshExitCode -eq 0 -and $marker -match "/var/lib/cka-bootstrap/.+\.complete") {
     $ready = $true
     break
   }
@@ -99,6 +121,16 @@ Invoke-NativeCommand -Command $gcloudCommand -Arguments @(
   "--zone", $zone,
   "--strict-host-key-checking=no",
   "--command", "sudo kubectl --kubeconfig /etc/kubernetes/admin.conf top nodes",
+  "--quiet"
+)
+
+Write-Host "Verifying Helm..."
+Invoke-NativeCommand -Command $gcloudCommand -Arguments @(
+  "compute", "ssh", $instanceName,
+  "--project", $projectId,
+  "--zone", $zone,
+  "--strict-host-key-checking=no",
+  "--command", "helm version --short",
   "--quiet"
 )
 
