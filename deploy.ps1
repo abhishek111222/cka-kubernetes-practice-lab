@@ -32,6 +32,31 @@ function Invoke-NativeCommand {
   }
 }
 
+function Clear-PuttyHostKeyForAddress {
+  param(
+    [Parameter(Mandatory)]
+    [string]$IpAddress
+  )
+
+  if ($env:OS -ne "Windows_NT") {
+    return
+  }
+
+  $puttyHostKeyPath = "HKCU:\Software\SimonTatham\PuTTY\SshHostKeys"
+  if (-not (Test-Path -LiteralPath $puttyHostKeyPath)) {
+    return
+  }
+
+  $cachedKeyNames = (Get-ItemProperty -LiteralPath $puttyHostKeyPath).PSObject.Properties |
+    Where-Object { $_.Name -like "*@22:${IpAddress}" } |
+    Select-Object -ExpandProperty Name
+
+  foreach ($cachedKeyName in $cachedKeyNames) {
+    Write-Host "Removing stale PuTTY host key for ${IpAddress}..."
+    Remove-ItemProperty -LiteralPath $puttyHostKeyPath -Name $cachedKeyName
+  }
+}
+
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $root
 
@@ -62,6 +87,7 @@ Invoke-NativeCommand -Command "terraform" -Arguments @("apply", "-input=false", 
 $instanceName = (& terraform output -raw instance_name).Trim()
 $projectId = (& terraform output -raw project_id).Trim()
 $zone = (& terraform output -raw instance_zone).Trim()
+$externalIp = (& terraform output -raw external_ip).Trim()
 
 if ($LASTEXITCODE -ne 0) {
   throw "Terraform outputs could not be read after apply."
@@ -75,15 +101,41 @@ if ($bootstrapScript -notmatch '(?m)^BOOTSTRAP_REVISION="([^"]+)"$') {
 $bootstrapRevision = $Matches[1]
 $completionMarker = "/var/lib/cka-bootstrap/${bootstrapRevision}.complete"
 
+Clear-PuttyHostKeyForAddress -IpAddress $externalIp
+
 Write-Host "Starting bootstrap revision $bootstrapRevision..."
-Invoke-NativeCommand -Command $gcloudCommand -Arguments @(
-  "compute", "ssh", $instanceName,
-  "--project", $projectId,
-  "--zone", $zone,
-  "--strict-host-key-checking=no",
-  "--command", "sudo sh -c 'nohup google_metadata_script_runner startup >/var/log/cka-bootstrap-runner.log 2>&1 </dev/null &'",
-  "--quiet"
-)
+$sshDeadline = (Get-Date).AddMinutes([Math]::Min(5, $TimeoutMinutes))
+$bootstrapStarted = $false
+
+while ((Get-Date) -lt $sshDeadline) {
+  $previousErrorActionPreference = $ErrorActionPreference
+  $ErrorActionPreference = "SilentlyContinue"
+
+  try {
+    & $gcloudCommand compute ssh $instanceName `
+      --project $projectId `
+      --zone $zone `
+      --strict-host-key-checking=no `
+      --command "sudo sh -c 'nohup google_metadata_script_runner startup >/var/log/cka-bootstrap-runner.log 2>&1 </dev/null &'" `
+      --quiet 2>$null
+    $sshExitCode = $LASTEXITCODE
+  }
+  finally {
+    $ErrorActionPreference = $previousErrorActionPreference
+  }
+
+  if ($sshExitCode -eq 0) {
+    $bootstrapStarted = $true
+    break
+  }
+
+  Write-Host "SSH and OS Login are not ready yet; retrying bootstrap start..."
+  Start-Sleep -Seconds 10
+}
+
+if (-not $bootstrapStarted) {
+  throw "SSH and OS Login did not become ready within five minutes. Run the printed gcloud SSH command with --troubleshoot."
+}
 
 Write-Host "Waiting for Kubernetes bootstrap on $instanceName..."
 $deadline = (Get-Date).AddMinutes($TimeoutMinutes)

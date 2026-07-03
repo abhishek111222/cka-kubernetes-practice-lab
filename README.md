@@ -113,6 +113,8 @@ This one command initializes and validates Terraform, creates and applies a save
 
 The automated health checks disable strict SSH host-key checking. This is intentional for the disposable lab: deleting and recreating a VM can assign a previously used IP address with a new host key. The destination IP is read directly from Terraform's authenticated GCP state, and no general SSH configuration on the laptop is changed.
 
+On Windows, the deployment also removes only the PuTTY host-key cache entries associated with the Terraform-reported VM IP. This prevents a deliberately recreated VM from being rejected when GCP reuses its previous address. The initial SSH/bootstrap command retries while SSH and OS Login initialize instead of failing on the first connection attempt.
+
 On Windows, the scripts use the Cloud SDK's `gcloud.cmd` launcher instead of its PowerShell wrapper. This allows the readiness loop to treat temporary SSH errors such as `Connection refused` as expected while the VM boots, retrying until the deployment timeout instead of terminating immediately.
 
 The software installed inside the VM is defined in [`scripts/bootstrap-kubernetes.sh`](scripts/bootstrap-kubernetes.sh). To add another Ubuntu package later, place its repository setup and `apt-get install` command alongside the Helm installation block, then update `COMPLETION_MARKER` so an existing VM does not skip the changed bootstrap.

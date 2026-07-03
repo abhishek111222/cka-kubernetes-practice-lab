@@ -12,7 +12,7 @@ POSTGRES_VERSION="18.4-bookworm"
 HELM_APT_KEY_FINGERPRINT="DDF78C3E6EBB2D2CC223C95C62BA89D07698DBC6"
 KUSTOMIZE_VERSION="v5.8.1"
 POD_NETWORK_CIDR="192.168.0.0/16"
-BOOTSTRAP_REVISION="kubernetes-v1.36-calico-v3.32.0-metrics-v0.8.1-gateway-v1.5.1-postgres-18.4-bookworm-kustomize-v5.8.1"
+BOOTSTRAP_REVISION="kubernetes-v1.36-calico-v3.32.0-metrics-v0.8.1-gateway-v1.5.1-postgres-18.4-bookworm-kustomize-v5.8.1-r2"
 COMPLETION_MARKER="/var/lib/cka-bootstrap/${BOOTSTRAP_REVISION}.complete"
 
 exec 9>/var/lock/cka-bootstrap.lock
@@ -268,12 +268,17 @@ spec:
               containerPort: 5432
           readinessProbe:
             exec:
-              command: ["sh", "-c", "pg_isready -U \"\${POSTGRES_USER}\" -d \"\${POSTGRES_DB}\""]
+              command: ["sh", "-c", "pg_isready -U \"\${POSTGRES_USER}\" -d postgres"]
             initialDelaySeconds: 5
             periodSeconds: 5
+          startupProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U \"\${POSTGRES_USER}\" -d postgres"]
+            periodSeconds: 5
+            failureThreshold: 60
           livenessProbe:
             exec:
-              command: ["sh", "-c", "pg_isready -U \"\${POSTGRES_USER}\" -d \"\${POSTGRES_DB}\""]
+              command: ["sh", "-c", "pg_isready -U \"\${POSTGRES_USER}\" -d postgres"]
             initialDelaySeconds: 20
             periodSeconds: 10
           resources:
@@ -299,6 +304,13 @@ kubectl rollout status deployment/calico-kube-controllers -n kube-system --timeo
 kubectl rollout status deployment/coredns -n kube-system --timeout=600s
 kubectl rollout status deployment/metrics-server -n kube-system --timeout=300s
 kubectl rollout status deployment/postgres -n database --timeout=600s
+
+echo "Ensuring the PostgreSQL practice database exists"
+if ! kubectl exec -n database deployment/postgres -- \
+  sh -c 'psql -U "$POSTGRES_USER" -d postgres -tAc "SELECT datname FROM pg_database" | grep -Fxq "$POSTGRES_DB"'; then
+  kubectl exec -n database deployment/postgres -- \
+    sh -c 'createdb -U "$POSTGRES_USER" "$POSTGRES_DB"'
+fi
 
 echo "Verifying Gateway API CRDs"
 for crd in gatewayclasses gateways httproutes grpcroutes referencegrants; do
