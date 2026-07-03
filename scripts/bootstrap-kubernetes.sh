@@ -7,9 +7,19 @@ exec > >(tee -a /var/log/cka-bootstrap.log) 2>&1
 KUBERNETES_MINOR="v1.36"
 CALICO_VERSION="v3.32.0"
 METRICS_SERVER_VERSION="v0.8.1"
+GATEWAY_API_VERSION="v1.5.1"
+POSTGRES_VERSION="18.4-bookworm"
 HELM_APT_KEY_FINGERPRINT="DDF78C3E6EBB2D2CC223C95C62BA89D07698DBC6"
+KUSTOMIZE_VERSION="v5.8.1"
 POD_NETWORK_CIDR="192.168.0.0/16"
-COMPLETION_MARKER="/var/lib/cka-bootstrap/kubernetes-${KUBERNETES_MINOR}-calico-${CALICO_VERSION}-metrics-${METRICS_SERVER_VERSION}-helm.complete"
+BOOTSTRAP_REVISION="kubernetes-v1.36-calico-v3.32.0-metrics-v0.8.1-gateway-v1.5.1-postgres-18.4-bookworm-kustomize-v5.8.1"
+COMPLETION_MARKER="/var/lib/cka-bootstrap/${BOOTSTRAP_REVISION}.complete"
+
+exec 9>/var/lock/cka-bootstrap.lock
+if ! flock -n 9; then
+  echo "Another Kubernetes bootstrap process is already running."
+  exit 0
+fi
 
 if [[ -f "${COMPLETION_MARKER}" ]]; then
   echo "Kubernetes bootstrap has already completed."
@@ -46,7 +56,7 @@ export DEBIAN_FRONTEND=noninteractive
 rm -f /etc/apt/sources.list.d/helm-stable-debian.list
 
 apt-get update
-apt-get install -y apt-transport-https ca-certificates curl gpg containerd
+apt-get install -y apt-transport-https ca-certificates curl gpg openssl util-linux containerd
 
 mkdir -p /etc/containerd
 containerd config default >/etc/containerd/config.toml
@@ -95,6 +105,36 @@ apt-get update
 apt-get install -y helm
 helm version --short
 
+echo "Installing standalone Kustomize ${KUSTOMIZE_VERSION}"
+case "$(dpkg --print-architecture)" in
+  amd64) kustomize_arch="amd64" ;;
+  arm64) kustomize_arch="arm64" ;;
+  *)
+    echo "Unsupported architecture for Kustomize: $(dpkg --print-architecture)"
+    exit 1
+    ;;
+esac
+
+kustomize_archive="kustomize_${KUSTOMIZE_VERSION}_linux_${kustomize_arch}.tar.gz"
+kustomize_release_url="https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2F${KUSTOMIZE_VERSION}"
+kustomize_tmp_dir="$(mktemp -d)"
+
+curl -fsSL "${kustomize_release_url}/${kustomize_archive}" \
+  -o "${kustomize_tmp_dir}/${kustomize_archive}"
+curl -fsSL "${kustomize_release_url}/checksums.txt" \
+  -o "${kustomize_tmp_dir}/checksums.txt"
+
+(
+  cd "${kustomize_tmp_dir}"
+  grep "  ${kustomize_archive}$" checksums.txt | sha256sum --check --strict -
+)
+
+tar -xzf "${kustomize_tmp_dir}/${kustomize_archive}" \
+  -C /usr/local/bin kustomize
+chmod 0755 /usr/local/bin/kustomize
+rm -rf "${kustomize_tmp_dir}"
+kustomize version
+
 if [[ ! -f /etc/kubernetes/admin.conf ]]; then
   echo "Initializing the Kubernetes control plane"
   kubeadm init \
@@ -123,12 +163,151 @@ if ! kubectl get deployment metrics-server -n kube-system \
     -p='[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]'
 fi
 
+echo "Installing Gateway API ${GATEWAY_API_VERSION} standard CRDs"
+kubectl apply --server-side=true -f \
+  "https://github.com/kubernetes-sigs/gateway-api/releases/download/${GATEWAY_API_VERSION}/standard-install.yaml"
+
+echo "Installing PostgreSQL ${POSTGRES_VERSION}"
+kubectl create namespace database --dry-run=client -o yaml | kubectl apply -f -
+
+if ! kubectl get secret postgres-credentials -n database >/dev/null 2>&1; then
+  postgres_password="$(openssl rand -hex 24)"
+  kubectl create secret generic postgres-credentials \
+    --namespace database \
+    --from-literal=username=cka \
+    --from-literal=password="${postgres_password}" \
+    --from-literal=database=cka \
+    --dry-run=client -o yaml | kubectl apply -f -
+fi
+
+mkdir -p /var/lib/cka-postgres
+chown 999:999 /var/lib/cka-postgres
+
+kubectl apply -f - <<EOF
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: postgres-data
+spec:
+  capacity:
+    storage: 5Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: cka-hostpath
+  hostPath:
+    path: /var/lib/cka-postgres
+    type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-data
+  namespace: database
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  storageClassName: cka-hostpath
+  volumeName: postgres-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: database
+spec:
+  selector:
+    app.kubernetes.io/name: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: database
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: postgres
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:${POSTGRES_VERSION}
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: username
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: password
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: database
+          ports:
+            - name: postgres
+              containerPort: 5432
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U \"\${POSTGRES_USER}\" -d \"\${POSTGRES_DB}\""]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U \"\${POSTGRES_USER}\" -d \"\${POSTGRES_DB}\""]
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: postgres-data
+EOF
+
 echo "Waiting for the node and system workloads"
 kubectl wait --for=condition=Ready node --all --timeout=600s
 kubectl rollout status daemonset/calico-node -n kube-system --timeout=600s
 kubectl rollout status deployment/calico-kube-controllers -n kube-system --timeout=600s
 kubectl rollout status deployment/coredns -n kube-system --timeout=600s
 kubectl rollout status deployment/metrics-server -n kube-system --timeout=300s
+kubectl rollout status deployment/postgres -n database --timeout=600s
+
+echo "Verifying Gateway API CRDs"
+for crd in gatewayclasses gateways httproutes grpcroutes referencegrants; do
+  kubectl get "customresourcedefinition/${crd}.gateway.networking.k8s.io" >/dev/null
+done
+
+echo "Verifying PostgreSQL"
+kubectl exec -n database deployment/postgres -- \
+  sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 -c "SELECT 1;"' >/dev/null
 
 echo "Waiting for the Metrics API to return data"
 for attempt in {1..36}; do

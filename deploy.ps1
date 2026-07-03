@@ -67,6 +67,24 @@ if ($LASTEXITCODE -ne 0) {
   throw "Terraform outputs could not be read after apply."
 }
 
+$bootstrapScript = Get-Content -LiteralPath (Join-Path $root "scripts\bootstrap-kubernetes.sh") -Raw
+if ($bootstrapScript -notmatch '(?m)^BOOTSTRAP_REVISION="([^"]+)"$') {
+  throw "BOOTSTRAP_REVISION could not be read from scripts/bootstrap-kubernetes.sh."
+}
+
+$bootstrapRevision = $Matches[1]
+$completionMarker = "/var/lib/cka-bootstrap/${bootstrapRevision}.complete"
+
+Write-Host "Starting bootstrap revision $bootstrapRevision..."
+Invoke-NativeCommand -Command $gcloudCommand -Arguments @(
+  "compute", "ssh", $instanceName,
+  "--project", $projectId,
+  "--zone", $zone,
+  "--strict-host-key-checking=no",
+  "--command", "sudo sh -c 'nohup google_metadata_script_runner startup >/var/log/cka-bootstrap-runner.log 2>&1 </dev/null &'",
+  "--quiet"
+)
+
 Write-Host "Waiting for Kubernetes bootstrap on $instanceName..."
 $deadline = (Get-Date).AddMinutes($TimeoutMinutes)
 $ready = $false
@@ -83,7 +101,7 @@ while ((Get-Date) -lt $deadline) {
       --project $projectId `
       --zone $zone `
       --strict-host-key-checking=no `
-      --command "sudo find /var/lib/cka-bootstrap -maxdepth 1 -name '*.complete' -print -quit" `
+      --command "sudo test -f '$completionMarker' && echo '$completionMarker'" `
       --quiet 2>$null
     $sshExitCode = $LASTEXITCODE
   }
@@ -91,7 +109,7 @@ while ((Get-Date) -lt $deadline) {
     $ErrorActionPreference = $previousErrorActionPreference
   }
 
-  if ($sshExitCode -eq 0 -and $marker -match "/var/lib/cka-bootstrap/.+\.complete") {
+  if ($sshExitCode -eq 0 -and $marker -eq $completionMarker) {
     $ready = $true
     break
   }
@@ -131,6 +149,36 @@ Invoke-NativeCommand -Command $gcloudCommand -Arguments @(
   "--zone", $zone,
   "--strict-host-key-checking=no",
   "--command", "helm version --short",
+  "--quiet"
+)
+
+Write-Host "Verifying standalone Kustomize..."
+Invoke-NativeCommand -Command $gcloudCommand -Arguments @(
+  "compute", "ssh", $instanceName,
+  "--project", $projectId,
+  "--zone", $zone,
+  "--strict-host-key-checking=no",
+  "--command", "kustomize version",
+  "--quiet"
+)
+
+Write-Host "Verifying Gateway API CRDs..."
+Invoke-NativeCommand -Command $gcloudCommand -Arguments @(
+  "compute", "ssh", $instanceName,
+  "--project", $projectId,
+  "--zone", $zone,
+  "--strict-host-key-checking=no",
+  "--command", "sudo kubectl --kubeconfig /etc/kubernetes/admin.conf get crd gateways.gateway.networking.k8s.io httproutes.gateway.networking.k8s.io gatewayclasses.gateway.networking.k8s.io",
+  "--quiet"
+)
+
+Write-Host "Verifying PostgreSQL..."
+Invoke-NativeCommand -Command $gcloudCommand -Arguments @(
+  "compute", "ssh", $instanceName,
+  "--project", $projectId,
+  "--zone", $zone,
+  "--strict-host-key-checking=no",
+  "--command", "sudo kubectl --kubeconfig /etc/kubernetes/admin.conf exec -n database deployment/postgres -- psql -U cka -d cka -v ON_ERROR_STOP=1 -tAc SELECT/**/1",
   "--quiet"
 )
 

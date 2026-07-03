@@ -8,6 +8,9 @@ This Terraform configuration creates a single-node CKA practice lab:
 - containerd and a `kubeadm` Kubernetes 1.36 control plane;
 - Calico networking, with the control-plane taint removed so practice workloads can run on the node.
 - Helm, installed from the current Buildkite-hosted Debian repository.
+- standalone Kustomize v5.8.1, verified against its published SHA-256 checksum.
+- Gateway API v1.5.1 standard CRDs.
+- PostgreSQL 18.4 with generated credentials and persistent single-node storage.
 
 ## Prerequisites
 
@@ -59,7 +62,7 @@ Type `DELETE` when prompted. Keep the cloned folder and its local Terraform stat
 | `deploy.ps1` | One-command create, bootstrap, wait, and verification workflow |
 | `destroy.ps1` | One-command destroy workflow with confirmation |
 | `scripts/gcp-auth.ps1` | Reuses credentials or launches Google login when required |
-| `scripts/bootstrap-kubernetes.sh` | Installs containerd, Kubernetes, Calico, and Metrics Server on the VM |
+| `scripts/bootstrap-kubernetes.sh` | Installs Kubernetes and the cluster add-ons, including Gateway API and PostgreSQL |
 | `outputs.tf` | Prints VM addresses, SSH command, and useful cluster commands |
 
 `terraform.tfvars`, Terraform state, saved plans, credentials, and private keys are ignored by Git and must not be committed.
@@ -106,7 +109,7 @@ After configuring `terraform.tfvars` and authenticating, run:
 .\deploy.ps1
 ```
 
-This one command initializes and validates Terraform, creates and applies a saved plan, waits for the VM startup script, and verifies the Kubernetes node, Metrics Server, and Helm. The complete VM-side installation code is [scripts/bootstrap-kubernetes.sh](scripts/bootstrap-kubernetes.sh); Terraform sends it to Compute Engine as startup-script metadata.
+This one command initializes and validates Terraform, creates and applies a saved plan, runs the current bootstrap revision, and verifies the Kubernetes node, Metrics Server, Helm, standalone Kustomize, Gateway API CRDs, and PostgreSQL. The complete VM-side installation code is [scripts/bootstrap-kubernetes.sh](scripts/bootstrap-kubernetes.sh); Terraform sends it to Compute Engine as startup-script metadata.
 
 The automated health checks disable strict SSH host-key checking. This is intentional for the disposable lab: deleting and recreating a VM can assign a previously used IP address with a new host key. The destination IP is read directly from Terraform's authenticated GCP state, and no general SSH configuration on the laptop is changed.
 
@@ -173,6 +176,23 @@ Verify Helm with:
 ```bash
 helm version --short
 ```
+
+Verify standalone Kustomize with:
+
+```bash
+kustomize version
+```
+
+Verify the Gateway API CRDs and PostgreSQL with:
+
+```bash
+sudo kubectl --kubeconfig /etc/kubernetes/admin.conf api-resources --api-group gateway.networking.k8s.io
+sudo kubectl --kubeconfig /etc/kubernetes/admin.conf get pods,service,pvc -n database
+sudo kubectl --kubeconfig /etc/kubernetes/admin.conf exec -n database deployment/postgres -- \
+  sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT version();"'
+```
+
+The PostgreSQL Service is cluster-internal at `postgres.database.svc.cluster.local:5432`. Its generated username, password, and database name are stored in the `postgres-credentials` Secret. The hostPath-backed volume is suitable for this disposable single-node practice cluster, not for a production database.
 
 The default `e2-small` VM has only 2 GB RAM, which is Kubernetes' practical minimum. Change `machine_type` to `e2-medium` if mock workloads encounter memory pressure.
 
