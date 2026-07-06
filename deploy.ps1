@@ -214,6 +214,16 @@ Invoke-NativeCommand -Command $gcloudCommand -Arguments @(
   "--quiet"
 )
 
+Write-Host "Verifying crictl and its containerd connection..."
+Invoke-NativeCommand -Command $gcloudCommand -Arguments @(
+  "compute", "ssh", $instanceName,
+  "--project", $projectId,
+  "--zone", $zone,
+  "--strict-host-key-checking=no",
+  "--command", "sudo crictl ps -a",
+  "--quiet"
+)
+
 Write-Host "Verifying Gateway API CRDs..."
 Invoke-NativeCommand -Command $gcloudCommand -Arguments @(
   "compute", "ssh", $instanceName,

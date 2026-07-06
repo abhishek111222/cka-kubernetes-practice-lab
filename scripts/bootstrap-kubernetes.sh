@@ -5,6 +5,7 @@ set -Eeuo pipefail
 exec > >(tee -a /var/log/cka-bootstrap.log) 2>&1
 
 KUBERNETES_MINOR="v1.36"
+CRICTL_VERSION="v1.36.0"
 CALICO_VERSION="v3.32.0"
 METRICS_SERVER_VERSION="v0.8.1"
 GATEWAY_API_VERSION="v1.5.1"
@@ -12,7 +13,7 @@ POSTGRES_VERSION="18.4-bookworm"
 HELM_APT_KEY_FINGERPRINT="DDF78C3E6EBB2D2CC223C95C62BA89D07698DBC6"
 KUSTOMIZE_VERSION="v5.8.1"
 POD_NETWORK_CIDR="192.168.0.0/16"
-BOOTSTRAP_REVISION="kubernetes-v1.36-calico-v3.32.0-metrics-v0.8.1-gateway-v1.5.1-postgres-18.4-bookworm-kustomize-v5.8.1-r2"
+BOOTSTRAP_REVISION="kubernetes-v1.36-crictl-v1.36.0-calico-v3.32.0-metrics-v0.8.1-gateway-v1.5.1-postgres-18.4-bookworm-kustomize-v5.8.1-r3"
 COMPLETION_MARKER="/var/lib/cka-bootstrap/${BOOTSTRAP_REVISION}.complete"
 
 exec 9>/var/lock/cka-bootstrap.lock
@@ -63,6 +64,46 @@ containerd config default >/etc/containerd/config.toml
 sed -ri 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
 systemctl enable --now containerd
 systemctl restart containerd
+
+echo "Installing crictl ${CRICTL_VERSION}"
+case "$(dpkg --print-architecture)" in
+  amd64) crictl_arch="amd64" ;;
+  arm64) crictl_arch="arm64" ;;
+  *)
+    echo "Unsupported architecture for crictl: $(dpkg --print-architecture)"
+    exit 1
+    ;;
+esac
+
+crictl_archive="crictl-${CRICTL_VERSION}-linux-${crictl_arch}.tar.gz"
+crictl_release_url="https://github.com/kubernetes-sigs/cri-tools/releases/download/${CRICTL_VERSION}"
+crictl_tmp_dir="$(mktemp -d)"
+
+curl -fsSL "${crictl_release_url}/${crictl_archive}" \
+  -o "${crictl_tmp_dir}/${crictl_archive}"
+curl -fsSL "${crictl_release_url}/${crictl_archive}.sha256" \
+  -o "${crictl_tmp_dir}/${crictl_archive}.sha256"
+
+(
+  cd "${crictl_tmp_dir}"
+  echo "$(cat "${crictl_archive}.sha256")  ${crictl_archive}" \
+    | sha256sum --check --strict -
+)
+
+tar -xzf "${crictl_tmp_dir}/${crictl_archive}" \
+  -C /usr/local/bin crictl
+chmod 0755 /usr/local/bin/crictl
+rm -rf "${crictl_tmp_dir}"
+
+cat >/etc/crictl.yaml <<'EOF'
+runtime-endpoint: unix:///run/containerd/containerd.sock
+image-endpoint: unix:///run/containerd/containerd.sock
+timeout: 10
+debug: false
+EOF
+
+crictl --version
+crictl info >/dev/null
 
 echo "Installing Kubernetes ${KUBERNETES_MINOR} packages"
 mkdir -p /etc/apt/keyrings
