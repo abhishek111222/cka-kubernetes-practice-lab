@@ -234,6 +234,16 @@ Invoke-NativeCommand -Command $gcloudCommand -Arguments @(
   "--quiet"
 )
 
+Write-Host "Verifying NGINX Gateway Fabric..."
+Invoke-NativeCommand -Command $gcloudCommand -Arguments @(
+  "compute", "ssh", $instanceName,
+  "--project", $projectId,
+  "--zone", $zone,
+  "--strict-host-key-checking=no",
+  "--command", "sudo kubectl --kubeconfig /etc/kubernetes/admin.conf get pods,svc -n nginx-gateway && sudo kubectl --kubeconfig /etc/kubernetes/admin.conf get gatewayclass nginx",
+  "--quiet"
+)
+
 Write-Host "Verifying PostgreSQL..."
 Invoke-NativeCommand -Command $gcloudCommand -Arguments @(
   "compute", "ssh", $instanceName,

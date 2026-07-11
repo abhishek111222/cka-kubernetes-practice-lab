@@ -9,11 +9,12 @@ CRICTL_VERSION="v1.36.0"
 CALICO_VERSION="v3.32.0"
 METRICS_SERVER_VERSION="v0.8.1"
 GATEWAY_API_VERSION="v1.5.1"
+NGINX_GATEWAY_FABRIC_CHART="oci://ghcr.io/nginx/charts/nginx-gateway-fabric"
 POSTGRES_VERSION="18.4-bookworm"
 HELM_APT_KEY_FINGERPRINT="DDF78C3E6EBB2D2CC223C95C62BA89D07698DBC6"
 KUSTOMIZE_VERSION="v5.8.1"
 POD_NETWORK_CIDR="192.168.0.0/16"
-BOOTSTRAP_REVISION="kubernetes-v1.36-crictl-v1.36.0-calico-v3.32.0-metrics-v0.8.1-gateway-v1.5.1-postgres-18.4-bookworm-kustomize-v5.8.1-r3"
+BOOTSTRAP_REVISION="kubernetes-v1.36-crictl-v1.36.0-calico-v3.32.0-metrics-v0.8.1-gateway-v1.5.1-nginx-gateway-fabric-postgres-18.4-bookworm-kustomize-v5.8.1-r5"
 COMPLETION_MARKER="/var/lib/cka-bootstrap/${BOOTSTRAP_REVISION}.complete"
 
 exec 9>/var/lock/cka-bootstrap.lock
@@ -208,6 +209,14 @@ echo "Installing Gateway API ${GATEWAY_API_VERSION} standard CRDs"
 kubectl apply --server-side=true -f \
   "https://github.com/kubernetes-sigs/gateway-api/releases/download/${GATEWAY_API_VERSION}/standard-install.yaml"
 
+echo "Installing NGINX Gateway Fabric"
+helm upgrade --install ngf "${NGINX_GATEWAY_FABRIC_CHART}" \
+  --create-namespace \
+  --namespace nginx-gateway \
+  --set nginx.service.type=NodePort \
+  --wait \
+  --timeout 10m
+
 echo "Installing PostgreSQL ${POSTGRES_VERSION}"
 kubectl create namespace database --dry-run=client -o yaml | kubectl apply -f -
 
@@ -344,6 +353,9 @@ kubectl rollout status daemonset/calico-node -n kube-system --timeout=600s
 kubectl rollout status deployment/calico-kube-controllers -n kube-system --timeout=600s
 kubectl rollout status deployment/coredns -n kube-system --timeout=600s
 kubectl rollout status deployment/metrics-server -n kube-system --timeout=300s
+kubectl rollout status deployment -n nginx-gateway \
+  -l app.kubernetes.io/instance=ngf --timeout=600s
+kubectl wait --for=condition=Accepted gatewayclass/nginx --timeout=300s
 kubectl rollout status deployment/postgres -n database --timeout=600s
 
 echo "Ensuring the PostgreSQL practice database exists"
@@ -357,6 +369,11 @@ echo "Verifying Gateway API CRDs"
 for crd in gatewayclasses gateways httproutes grpcroutes referencegrants; do
   kubectl get "customresourcedefinition/${crd}.gateway.networking.k8s.io" >/dev/null
 done
+
+echo "Verifying NGINX Gateway Fabric"
+helm status ngf --namespace nginx-gateway >/dev/null
+kubectl get pods -n nginx-gateway -l app.kubernetes.io/instance=ngf >/dev/null
+kubectl get gatewayclass/nginx >/dev/null
 
 echo "Verifying PostgreSQL"
 kubectl exec -n database deployment/postgres -- \

@@ -10,7 +10,7 @@ This Terraform configuration creates a single-node CKA practice lab:
 - Calico networking, with the control-plane taint removed so practice workloads can run on the node.
 - Helm, installed from the current Buildkite-hosted Debian repository.
 - standalone Kustomize v5.8.1, verified against its published SHA-256 checksum.
-- Gateway API v1.5.1 standard CRDs.
+- Gateway API v1.5.1 standard CRDs and NGINX Gateway Fabric installed by Helm as a NodePort service.
 - PostgreSQL 18.4 with generated credentials and persistent single-node storage.
 
 ## Prerequisites
@@ -110,7 +110,7 @@ After configuring `terraform.tfvars` and authenticating, run:
 .\deploy.ps1
 ```
 
-This one command initializes and validates Terraform, creates and applies a saved plan, runs the current bootstrap revision, and verifies the Kubernetes node, Metrics Server, Helm, standalone Kustomize, crictl, Gateway API CRDs, and PostgreSQL. The complete VM-side installation code is [scripts/bootstrap-kubernetes.sh](scripts/bootstrap-kubernetes.sh); Terraform sends it to Compute Engine as startup-script metadata.
+This one command initializes and validates Terraform, creates and applies a saved plan, runs the current bootstrap revision, and verifies the Kubernetes node, Metrics Server, Helm, standalone Kustomize, crictl, Gateway API CRDs, NGINX Gateway Fabric, and PostgreSQL. The complete VM-side installation code is [scripts/bootstrap-kubernetes.sh](scripts/bootstrap-kubernetes.sh); Terraform sends it to Compute Engine as startup-script metadata.
 
 The automated health checks disable strict SSH host-key checking. This is intentional for the disposable lab: deleting and recreating a VM can assign a previously used IP address with a new host key. The destination IP is read directly from Terraform's authenticated GCP state, and no general SSH configuration on the laptop is changed.
 
@@ -197,10 +197,11 @@ sudo crictl logs <container-id>
 
 The bootstrap writes `/etc/crictl.yaml`, pointing both CRI endpoints to containerd's socket. Use `sudo crictl info` to inspect the runtime configuration.
 
-Verify the Gateway API CRDs and PostgreSQL with:
+Verify the Gateway API CRDs, NGINX Gateway Fabric, and PostgreSQL with:
 
 ```bash
 sudo kubectl --kubeconfig /etc/kubernetes/admin.conf api-resources --api-group gateway.networking.k8s.io
+sudo kubectl --kubeconfig /etc/kubernetes/admin.conf get pods,svc -n nginx-gateway
 sudo kubectl --kubeconfig /etc/kubernetes/admin.conf get pods,service,pvc -n database
 sudo kubectl --kubeconfig /etc/kubernetes/admin.conf exec -n database deployment/postgres -- \
   sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT version();"'
