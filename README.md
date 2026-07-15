@@ -7,6 +7,7 @@ This Terraform configuration creates a single-node CKA practice lab:
 - OS Login for SSH access;
 - containerd and a `kubeadm` Kubernetes 1.36 control plane;
 - crictl v1.36.0, configured to inspect and debug the containerd runtime.
+- etcdctl from the Ubuntu `etcd-client` package for etcd backup and inspection practice.
 - Calico networking, with the control-plane taint removed so practice workloads can run on the node.
 - Helm, installed from the current Buildkite-hosted Debian repository.
 - standalone Kustomize v5.8.1, verified against its published SHA-256 checksum.
@@ -110,7 +111,7 @@ After configuring `terraform.tfvars` and authenticating, run:
 .\deploy.ps1
 ```
 
-This one command initializes and validates Terraform, creates and applies a saved plan, runs the current bootstrap revision, and verifies the Kubernetes node, Metrics Server, Helm, standalone Kustomize, crictl, Gateway API CRDs, NGINX Gateway Fabric, and PostgreSQL. The complete VM-side installation code is [scripts/bootstrap-kubernetes.sh](scripts/bootstrap-kubernetes.sh); Terraform sends it to Compute Engine as startup-script metadata.
+This one command initializes and validates Terraform, creates and applies a saved plan, runs the current bootstrap revision, and verifies the Kubernetes node, Metrics Server, Helm, standalone Kustomize, crictl, etcdctl, Gateway API CRDs, NGINX Gateway Fabric, and PostgreSQL. The complete VM-side installation code is [scripts/bootstrap-kubernetes.sh](scripts/bootstrap-kubernetes.sh); Terraform sends it to Compute Engine as startup-script metadata.
 
 The automated health checks disable strict SSH host-key checking. This is intentional for the disposable lab: deleting and recreating a VM can assign a previously used IP address with a new host key. The destination IP is read directly from Terraform's authenticated GCP state, and no general SSH configuration on the laptop is changed.
 
@@ -196,6 +197,12 @@ sudo crictl logs <container-id>
 ```
 
 The bootstrap writes `/etc/crictl.yaml`, pointing both CRI endpoints to containerd's socket. Use `sudo crictl info` to inspect the runtime configuration.
+
+Verify etcdctl with:
+
+```bash
+etcdctl version
+```
 
 Verify the Gateway API CRDs, NGINX Gateway Fabric, and PostgreSQL with:
 

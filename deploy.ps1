@@ -224,6 +224,16 @@ Invoke-NativeCommand -Command $gcloudCommand -Arguments @(
   "--quiet"
 )
 
+Write-Host "Verifying etcdctl..."
+Invoke-NativeCommand -Command $gcloudCommand -Arguments @(
+  "compute", "ssh", $instanceName,
+  "--project", $projectId,
+  "--zone", $zone,
+  "--strict-host-key-checking=no",
+  "--command", "etcdctl version",
+  "--quiet"
+)
+
 Write-Host "Verifying Gateway API CRDs..."
 Invoke-NativeCommand -Command $gcloudCommand -Arguments @(
   "compute", "ssh", $instanceName,

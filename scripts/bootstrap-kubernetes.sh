@@ -14,7 +14,7 @@ POSTGRES_VERSION="18.4-bookworm"
 HELM_APT_KEY_FINGERPRINT="DDF78C3E6EBB2D2CC223C95C62BA89D07698DBC6"
 KUSTOMIZE_VERSION="v5.8.1"
 POD_NETWORK_CIDR="192.168.0.0/16"
-BOOTSTRAP_REVISION="kubernetes-v1.36-crictl-v1.36.0-calico-v3.32.0-metrics-v0.8.1-gateway-v1.5.1-nginx-gateway-fabric-postgres-18.4-bookworm-kustomize-v5.8.1-r5"
+BOOTSTRAP_REVISION="kubernetes-v1.36-crictl-v1.36.0-etcd-client-calico-v3.32.0-metrics-v0.8.1-gateway-v1.5.1-nginx-gateway-fabric-postgres-18.4-bookworm-kustomize-v5.8.1-r6"
 COMPLETION_MARKER="/var/lib/cka-bootstrap/${BOOTSTRAP_REVISION}.complete"
 
 exec 9>/var/lock/cka-bootstrap.lock
@@ -58,7 +58,8 @@ export DEBIAN_FRONTEND=noninteractive
 rm -f /etc/apt/sources.list.d/helm-stable-debian.list
 
 apt-get update
-apt-get install -y apt-transport-https ca-certificates curl gpg openssl util-linux containerd
+apt-get install -y apt-transport-https ca-certificates curl gpg openssl util-linux containerd etcd-client
+etcdctl version
 
 mkdir -p /etc/containerd
 containerd config default >/etc/containerd/config.toml
