@@ -1,3 +1,8 @@
+locals {
+  personal_practice_manifest_path = "${path.module}/local-practice/personal-practice.yaml"
+  personal_practice_manifest      = fileexists(local.personal_practice_manifest_path) ? file(local.personal_practice_manifest_path) : ""
+}
+
 resource "google_project_service" "compute" {
   project            = var.project_id
   service            = "compute.googleapis.com"
@@ -26,8 +31,9 @@ resource "google_compute_instance" "cka" {
   }
 
   metadata = {
-    enable-oslogin = "TRUE"
-    startup-script = file("${path.module}/scripts/bootstrap-kubernetes.sh")
+    enable-oslogin             = "TRUE"
+    startup-script             = file("${path.module}/scripts/bootstrap-kubernetes.sh")
+    personal-practice-manifest = local.personal_practice_manifest
   }
 
   shielded_instance_config {

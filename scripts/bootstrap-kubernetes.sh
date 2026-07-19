@@ -10,11 +10,12 @@ CALICO_VERSION="v3.32.0"
 METRICS_SERVER_VERSION="v0.8.1"
 GATEWAY_API_VERSION="v1.5.1"
 NGINX_GATEWAY_FABRIC_CHART="oci://ghcr.io/nginx/charts/nginx-gateway-fabric"
+LOCAL_PATH_PROVISIONER_VERSION="v0.0.32"
 POSTGRES_VERSION="18.4-bookworm"
 HELM_APT_KEY_FINGERPRINT="DDF78C3E6EBB2D2CC223C95C62BA89D07698DBC6"
 KUSTOMIZE_VERSION="v5.8.1"
 POD_NETWORK_CIDR="192.168.0.0/16"
-BOOTSTRAP_REVISION="kubernetes-v1.36-crictl-v1.36.0-etcd-client-calico-v3.32.0-metrics-v0.8.1-gateway-v1.5.1-nginx-gateway-fabric-postgres-18.4-bookworm-kustomize-v5.8.1-r6"
+BOOTSTRAP_REVISION="kubernetes-v1.36-crictl-v1.36.0-etcd-client-calico-v3.32.0-metrics-v0.8.1-gateway-v1.5.1-nginx-gateway-fabric-local-path-v0.0.32-postgres-18.4-bookworm-kustomize-v5.8.1-r8"
 COMPLETION_MARKER="/var/lib/cka-bootstrap/${BOOTSTRAP_REVISION}.complete"
 
 exec 9>/var/lock/cka-bootstrap.lock
@@ -206,6 +207,10 @@ if ! kubectl get deployment metrics-server -n kube-system \
     -p='[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]'
 fi
 
+echo "Installing Local Path Provisioner ${LOCAL_PATH_PROVISIONER_VERSION}"
+kubectl apply -f \
+  "https://raw.githubusercontent.com/rancher/local-path-provisioner/${LOCAL_PATH_PROVISIONER_VERSION}/deploy/local-path-storage.yaml"
+
 echo "Installing Gateway API ${GATEWAY_API_VERSION} standard CRDs"
 kubectl apply --server-side=true -f \
   "https://github.com/kubernetes-sigs/gateway-api/releases/download/${GATEWAY_API_VERSION}/standard-install.yaml"
@@ -354,6 +359,7 @@ kubectl rollout status daemonset/calico-node -n kube-system --timeout=600s
 kubectl rollout status deployment/calico-kube-controllers -n kube-system --timeout=600s
 kubectl rollout status deployment/coredns -n kube-system --timeout=600s
 kubectl rollout status deployment/metrics-server -n kube-system --timeout=300s
+kubectl rollout status deployment/local-path-provisioner -n local-path-storage --timeout=300s
 kubectl rollout status deployment -n nginx-gateway \
   -l app.kubernetes.io/instance=ngf --timeout=600s
 kubectl wait --for=condition=Accepted gatewayclass/nginx --timeout=300s
@@ -375,6 +381,25 @@ echo "Verifying NGINX Gateway Fabric"
 helm status ngf --namespace nginx-gateway >/dev/null
 kubectl get pods -n nginx-gateway -l app.kubernetes.io/instance=ngf >/dev/null
 kubectl get gatewayclass/nginx >/dev/null
+
+echo "Verifying Local Path Provisioner"
+kubectl get storageclass/local-path >/dev/null
+kubectl get deployment/local-path-provisioner -n local-path-storage >/dev/null
+
+echo "Checking for local personal practice manifests"
+personal_practice_manifest="$(
+  curl -fsS \
+    -H "Metadata-Flavor: Google" \
+    "http://metadata.google.internal/computeMetadata/v1/instance/attributes/personal-practice-manifest" \
+    || true
+)"
+
+if [[ -n "${personal_practice_manifest}" ]]; then
+  echo "Applying local personal practice manifests"
+  printf '%s\n' "${personal_practice_manifest}" | kubectl apply -f -
+else
+  echo "No local personal practice manifests found"
+fi
 
 echo "Verifying PostgreSQL"
 kubectl exec -n database deployment/postgres -- \

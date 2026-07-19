@@ -254,6 +254,16 @@ Invoke-NativeCommand -Command $gcloudCommand -Arguments @(
   "--quiet"
 )
 
+Write-Host "Verifying Local Path Provisioner..."
+Invoke-NativeCommand -Command $gcloudCommand -Arguments @(
+  "compute", "ssh", $instanceName,
+  "--project", $projectId,
+  "--zone", $zone,
+  "--strict-host-key-checking=no",
+  "--command", "sudo kubectl --kubeconfig /etc/kubernetes/admin.conf get storageclass local-path && sudo kubectl --kubeconfig /etc/kubernetes/admin.conf get pods -n local-path-storage",
+  "--quiet"
+)
+
 Write-Host "Verifying PostgreSQL..."
 Invoke-NativeCommand -Command $gcloudCommand -Arguments @(
   "compute", "ssh", $instanceName,

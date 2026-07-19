@@ -12,6 +12,7 @@ This Terraform configuration creates a single-node CKA practice lab:
 - Helm, installed from the current Buildkite-hosted Debian repository.
 - standalone Kustomize v5.8.1, verified against its published SHA-256 checksum.
 - Gateway API v1.5.1 standard CRDs and NGINX Gateway Fabric installed by Helm as a NodePort service.
+- Rancher Local Path Provisioner v0.0.32 with StorageClass `local-path` for PVC practice.
 - PostgreSQL 18.4 with generated credentials and persistent single-node storage.
 
 ## Prerequisites
@@ -111,7 +112,7 @@ After configuring `terraform.tfvars` and authenticating, run:
 .\deploy.ps1
 ```
 
-This one command initializes and validates Terraform, creates and applies a saved plan, runs the current bootstrap revision, and verifies the Kubernetes node, Metrics Server, Helm, standalone Kustomize, crictl, etcdctl, Gateway API CRDs, NGINX Gateway Fabric, and PostgreSQL. The complete VM-side installation code is [scripts/bootstrap-kubernetes.sh](scripts/bootstrap-kubernetes.sh); Terraform sends it to Compute Engine as startup-script metadata.
+This one command initializes and validates Terraform, creates and applies a saved plan, runs the current bootstrap revision, and verifies the Kubernetes node, Metrics Server, Helm, standalone Kustomize, crictl, etcdctl, Gateway API CRDs, NGINX Gateway Fabric, Local Path Provisioner, and PostgreSQL. The complete VM-side installation code is [scripts/bootstrap-kubernetes.sh](scripts/bootstrap-kubernetes.sh); Terraform sends it to Compute Engine as startup-script metadata.
 
 The automated health checks disable strict SSH host-key checking. This is intentional for the disposable lab: deleting and recreating a VM can assign a previously used IP address with a new host key. The destination IP is read directly from Terraform's authenticated GCP state, and no general SSH configuration on the laptop is changed.
 
@@ -120,6 +121,8 @@ On Windows, the deployment also removes only the PuTTY host-key cache entries as
 On Windows, the scripts use the Cloud SDK's `gcloud.cmd` launcher instead of its PowerShell wrapper. This allows the readiness loop to treat temporary SSH errors such as `Connection refused` as expected while the VM boots, retrying until the deployment timeout instead of terminating immediately.
 
 The software installed inside the VM is defined in [`scripts/bootstrap-kubernetes.sh`](scripts/bootstrap-kubernetes.sh). To add another Ubuntu package later, place its repository setup and `apt-get install` command alongside the Helm installation block, then update `COMPLETION_MARKER` so an existing VM does not skip the changed bootstrap.
+
+Private practice manifests can be placed at `local-practice/personal-practice.yaml`. If that file exists on your laptop when you run `.\deploy.ps1`, Terraform embeds it into VM metadata and the bootstrap applies it after the core cluster add-ons are ready. The `local-practice/` folder is ignored by Git, so personal exam-question setups stay off the public repo.
 
 Cluster readiness is based on the node and managed workload rollouts rather than every historical pod. This avoids false failures when Kubernetes replaces a pod during an update and the superseded pod is still terminating.
 
@@ -202,6 +205,18 @@ Verify etcdctl with:
 
 ```bash
 etcdctl version
+```
+
+Create PVCs for storage practice with:
+
+```yaml
+storageClassName: local-path
+```
+
+Verify the StorageClass with:
+
+```bash
+sudo kubectl --kubeconfig /etc/kubernetes/admin.conf get storageclass local-path
 ```
 
 Verify the Gateway API CRDs, NGINX Gateway Fabric, and PostgreSQL with:

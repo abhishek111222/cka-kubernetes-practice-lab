@@ -33,3 +33,7 @@ application_default_credentials.json
 .idea/
 .DS_Store
 Thumbs.db
+
+# Personal CKA practice manifests. These can be applied by the bootstrap on
+# your own machine, but should not be published to the public repo.
+local-practice/
