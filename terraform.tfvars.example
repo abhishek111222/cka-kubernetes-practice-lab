@@ -4,6 +4,9 @@ region     = "europe-west2"
 zone       = "europe-west2-a"
 
 # Optional overrides:
-# instance_name     = "abhis-cka-vm"
-# machine_type      = "e2-small"
-# boot_disk_size_gb = 30
+# instance_name               = "abhis-cka-vm"
+# machine_type                = "e2-small"
+# control_plane_machine_type  = "e2-small"
+# worker_machine_type         = "e2-small"
+# worker_count                = 1
+# boot_disk_size_gb           = 30

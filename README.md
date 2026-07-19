@@ -1,14 +1,15 @@
 # CKA practice infrastructure
 
-This Terraform configuration creates a single-node CKA practice lab:
+This Terraform configuration creates a multi-node CKA practice lab:
 
-- one small Ubuntu 24.04 LTS Compute Engine VM;
+- one Ubuntu 24.04 LTS Compute Engine control-plane VM;
+- one or more Ubuntu 24.04 LTS Compute Engine worker VMs;
 - an external IP address on the project's existing `default` network;
 - OS Login for SSH access;
 - containerd and a `kubeadm` Kubernetes 1.36 control plane;
 - crictl v1.36.0, configured to inspect and debug the containerd runtime.
 - etcdctl from the Ubuntu `etcd-client` package for etcd backup and inspection practice.
-- Calico networking, with the control-plane taint removed so practice workloads can run on the node.
+- Calico networking, with the normal control-plane taint kept so practice workloads schedule on workers.
 - Helm, installed from the current Buildkite-hosted Debian repository.
 - standalone Kustomize v5.8.1, verified against its published SHA-256 checksum.
 - Gateway API v1.5.1 standard CRDs and NGINX Gateway Fabric installed by Helm as a NodePort service.
@@ -59,7 +60,7 @@ Type `DELETE` when prompted. Keep the cloned folder and its local Terraform stat
 
 | Path | Purpose |
 | --- | --- |
-| `main.tf` | Creates the Compute Engine API setting and Ubuntu VM |
+| `main.tf` | Creates the Compute Engine API setting, firewall rule, control-plane VM, and worker VMs |
 | `variables.tf` | Defines configurable project, location, VM, disk, and label inputs |
 | `terraform.tfvars.example` | Safe template for local configuration |
 | `deploy.ps1` | One-command create, bootstrap, wait, and verification workflow |
@@ -102,6 +103,9 @@ The reusable inputs are:
 | `zone` | VM zone | `europe-west2-a` |
 | `instance_name` | VM name | `abhis-cka-vm` |
 | `machine_type` | VM CPU and memory size | `e2-small` |
+| `control_plane_machine_type` | Optional control-plane VM size override | `null` |
+| `worker_machine_type` | Optional worker VM size override | `null` |
+| `worker_count` | Number of worker VMs | `1` |
 | `boot_disk_size_gb` | Boot disk size | `30` |
 
 ## One-command deployment
@@ -112,7 +116,7 @@ After configuring `terraform.tfvars` and authenticating, run:
 .\deploy.ps1
 ```
 
-This one command initializes and validates Terraform, creates and applies a saved plan, runs the current bootstrap revision, and verifies the Kubernetes node, Metrics Server, Helm, standalone Kustomize, crictl, etcdctl, Gateway API CRDs, NGINX Gateway Fabric, Local Path Provisioner, and PostgreSQL. The complete VM-side installation code is [scripts/bootstrap-kubernetes.sh](scripts/bootstrap-kubernetes.sh); Terraform sends it to Compute Engine as startup-script metadata.
+This one command initializes and validates Terraform, creates and applies a saved plan, creates one control-plane VM plus `worker_count` worker VM(s), runs the current bootstrap revision, joins the workers, and verifies the Kubernetes nodes, Metrics Server, Helm, standalone Kustomize, crictl, etcdctl, Gateway API CRDs, NGINX Gateway Fabric, Local Path Provisioner, and PostgreSQL. The control-plane bootstrap is [scripts/bootstrap-kubernetes.sh](scripts/bootstrap-kubernetes.sh), and worker bootstrap is [scripts/bootstrap-worker.sh](scripts/bootstrap-worker.sh); Terraform sends them to Compute Engine as startup-script metadata.
 
 The automated health checks disable strict SSH host-key checking. This is intentional for the disposable lab: deleting and recreating a VM can assign a previously used IP address with a new host key. The destination IP is read directly from Terraform's authenticated GCP state, and no general SSH configuration on the laptop is changed.
 
@@ -122,7 +126,7 @@ On Windows, the scripts use the Cloud SDK's `gcloud.cmd` launcher instead of its
 
 The software installed inside the VM is defined in [`scripts/bootstrap-kubernetes.sh`](scripts/bootstrap-kubernetes.sh). To add another Ubuntu package later, place its repository setup and `apt-get install` command alongside the Helm installation block, then update `COMPLETION_MARKER` so an existing VM does not skip the changed bootstrap.
 
-Private practice manifests can be placed at `local-practice/personal-practice.yaml`. If that file exists on your laptop when you run `.\deploy.ps1`, Terraform embeds it into VM metadata and the bootstrap applies it after the core cluster add-ons are ready. The `local-practice/` folder is ignored by Git, so personal exam-question setups stay off the public repo.
+Private practice manifests can be placed at `local-practice/personal-practice.yaml`. Private VM-side setup commands can be placed at `local-practice/personal-practice.sh`. If either file exists on your laptop when you run `.\deploy.ps1`, Terraform embeds it into VM metadata and the bootstrap applies/runs it after the core cluster add-ons are ready. The `local-practice/` folder is ignored by Git, so personal exam-question setups stay off the public repo.
 
 Cluster readiness is based on the node and managed workload rollouts rather than every historical pod. This avoids false failures when Kubernetes replaces a pod during an update and the superseded pod is still terminating.
 
@@ -169,7 +173,7 @@ The startup script runs asynchronously after the VM boots. Follow its progress w
 sudo tail -f /var/log/cka-bootstrap.log
 ```
 
-The final log line is `Kubernetes bootstrap completed successfully`. The script is idempotent and records successful completion under `/var/lib/cka-bootstrap/`.
+The final control-plane log line is `Kubernetes bootstrap completed successfully`. Worker nodes write `/var/log/cka-worker-bootstrap.log` and finish with `Worker bootstrap completed successfully`. The scripts are idempotent and record successful completion under `/var/lib/cka-bootstrap/`.
 
 Metrics Server is included, so resource usage commands work after bootstrap:
 
@@ -231,7 +235,7 @@ sudo kubectl --kubeconfig /etc/kubernetes/admin.conf exec -n database deployment
 
 The PostgreSQL Service is cluster-internal at `postgres.database.svc.cluster.local:5432`. Its generated username, password, and database name are stored in the `postgres-credentials` Secret. The hostPath-backed volume is suitable for this disposable single-node practice cluster, not for a production database.
 
-The default `e2-small` VM has only 2 GB RAM, which is Kubernetes' practical minimum. Change `machine_type` to `e2-medium` if mock workloads encounter memory pressure.
+The default `e2-small` VMs have only 2 GB RAM each, which is Kubernetes' practical minimum. Change `control_plane_machine_type` or `worker_machine_type` to `e2-medium` if mock workloads encounter memory pressure.
 
 ## Troubleshooting
 
@@ -263,6 +267,6 @@ When testing is complete, run:
 .\destroy.ps1
 ```
 
-The script authenticates when necessary, creates a destroy plan, and requires you to type `DELETE` before applying it. For unattended automation, `.\destroy.ps1 -AutoApprove` skips that confirmation and should be used carefully.
+The script authenticates when necessary, creates a destroy plan, and requires you to type `DELETE` before applying it. For unattended automation, `.\destroy.ps1 -AutoApprove` skips that confirmation and should be used carefully. After Terraform destroy, the wrapper checks for leftover lab-tagged VMs and lab-name-prefixed disks and deletes them so disposable lab resources do not keep billing accidentally.
 
 Terraform intentionally leaves the Compute Engine API enabled when resources are destroyed. Terraform state is local to this folder, so keep the folder and its state file until resources have been destroyed.

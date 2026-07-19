@@ -1,6 +1,16 @@
 output "instance_name" {
-  description = "Name of the created VM."
-  value       = google_compute_instance.cka.name
+  description = "Name of the control-plane VM."
+  value       = google_compute_instance.control_plane.name
+}
+
+output "control_plane_name" {
+  description = "Name of the control-plane VM."
+  value       = google_compute_instance.control_plane.name
+}
+
+output "worker_names" {
+  description = "Names of the worker VMs."
+  value       = google_compute_instance.worker[*].name
 }
 
 output "project_id" {
@@ -9,23 +19,28 @@ output "project_id" {
 }
 
 output "instance_zone" {
-  description = "Zone containing the VM."
-  value       = google_compute_instance.cka.zone
+  description = "Zone containing the lab VMs."
+  value       = var.zone
 }
 
 output "external_ip" {
-  description = "Public IPv4 address assigned to the VM."
-  value       = google_compute_instance.cka.network_interface[0].access_config[0].nat_ip
+  description = "Public IPv4 address assigned to the control-plane VM."
+  value       = google_compute_instance.control_plane.network_interface[0].access_config[0].nat_ip
 }
 
 output "internal_ip" {
-  description = "Private IPv4 address assigned to the VM."
-  value       = google_compute_instance.cka.network_interface[0].network_ip
+  description = "Private IPv4 address assigned to the control-plane VM."
+  value       = google_compute_instance.control_plane.network_interface[0].network_ip
+}
+
+output "worker_internal_ips" {
+  description = "Private IPv4 addresses assigned to worker VMs."
+  value       = google_compute_instance.worker[*].network_interface[0].network_ip
 }
 
 output "ssh_command" {
   description = "Command for connecting through gcloud and OS Login."
-  value       = "gcloud compute ssh ${google_compute_instance.cka.name} --project ${var.project_id} --zone ${var.zone}"
+  value       = "gcloud compute ssh ${google_compute_instance.control_plane.name} --project ${var.project_id} --zone ${var.zone}"
 }
 
 output "cluster_check_command" {

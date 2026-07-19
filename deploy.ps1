@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
   [ValidateRange(5, 60)]
-  [int]$TimeoutMinutes = 15
+  [int]$TimeoutMinutes = 30
 )
 
 $ErrorActionPreference = "Stop"
@@ -88,6 +88,7 @@ $instanceName = (& terraform output -raw instance_name).Trim()
 $projectId = (& terraform output -raw project_id).Trim()
 $zone = (& terraform output -raw instance_zone).Trim()
 $externalIp = (& terraform output -raw external_ip).Trim()
+$workerNamesJson = (& terraform output -json worker_names).Trim()
 
 if ($LASTEXITCODE -ne 0) {
   throw "Terraform outputs could not be read after apply."
@@ -100,6 +101,8 @@ if ($bootstrapScript -notmatch '(?m)^BOOTSTRAP_REVISION="([^"]+)"$') {
 
 $bootstrapRevision = $Matches[1]
 $completionMarker = "/var/lib/cka-bootstrap/${bootstrapRevision}.complete"
+$workerNames = @($workerNamesJson | ConvertFrom-Json)
+$expectedNodeCount = 1 + $workerNames.Count
 
 Clear-PuttyHostKeyForAddress -IpAddress $externalIp
 
@@ -137,7 +140,7 @@ if (-not $bootstrapStarted) {
   throw "SSH and OS Login did not become ready within five minutes. Run the printed gcloud SSH command with --troubleshoot."
 }
 
-Write-Host "Waiting for Kubernetes bootstrap on $instanceName..."
+Write-Host "Waiting for Kubernetes bootstrap on $instanceName and $($workerNames.Count) worker node(s)..."
 $deadline = (Get-Date).AddMinutes($TimeoutMinutes)
 $ready = $false
 
@@ -181,6 +184,16 @@ Invoke-NativeCommand -Command $gcloudCommand -Arguments @(
   "--zone", $zone,
   "--strict-host-key-checking=no",
   "--command", "sudo kubectl --kubeconfig /etc/kubernetes/admin.conf get nodes -o wide",
+  "--quiet"
+)
+
+Write-Host "Verifying expected Kubernetes node count..."
+Invoke-NativeCommand -Command $gcloudCommand -Arguments @(
+  "compute", "ssh", $instanceName,
+  "--project", $projectId,
+  "--zone", $zone,
+  "--strict-host-key-checking=no",
+  "--command", "test `$(sudo kubectl --kubeconfig /etc/kubernetes/admin.conf get nodes --no-headers | wc -l) -eq $expectedNodeCount",
   "--quiet"
 )
 

@@ -32,9 +32,32 @@ variable "instance_name" {
 }
 
 variable "machine_type" {
-  description = "Compute Engine machine type. e2-small provides 2 shared-core vCPUs and 2 GB RAM."
+  description = "Default Compute Engine machine type."
   type        = string
   default     = "e2-small"
+}
+
+variable "control_plane_machine_type" {
+  description = "Compute Engine machine type for the control-plane VM. Defaults to machine_type."
+  type        = string
+  default     = null
+}
+
+variable "worker_machine_type" {
+  description = "Compute Engine machine type for worker VMs. Defaults to machine_type."
+  type        = string
+  default     = null
+}
+
+variable "worker_count" {
+  description = "Number of Kubernetes worker nodes to create."
+  type        = number
+  default     = 1
+
+  validation {
+    condition     = var.worker_count >= 1 && var.worker_count <= 3
+    error_message = "worker_count must be between 1 and 3 for this disposable CKA lab."
+  }
 }
 
 variable "boot_disk_size_gb" {

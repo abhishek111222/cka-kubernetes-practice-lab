@@ -15,7 +15,7 @@ POSTGRES_VERSION="18.4-bookworm"
 HELM_APT_KEY_FINGERPRINT="DDF78C3E6EBB2D2CC223C95C62BA89D07698DBC6"
 KUSTOMIZE_VERSION="v5.8.1"
 POD_NETWORK_CIDR="192.168.0.0/16"
-BOOTSTRAP_REVISION="kubernetes-v1.36-crictl-v1.36.0-etcd-client-calico-v3.32.0-metrics-v0.8.1-gateway-v1.5.1-nginx-gateway-fabric-local-path-v0.0.32-postgres-18.4-bookworm-kustomize-v5.8.1-r8"
+BOOTSTRAP_REVISION="kubernetes-v1.36-crictl-v1.36.0-etcd-client-calico-v3.32.0-metrics-v0.8.1-gateway-v1.5.1-nginx-gateway-fabric-local-path-v0.0.32-postgres-18.4-bookworm-kustomize-v5.8.1-multinode-r11"
 COMPLETION_MARKER="/var/lib/cka-bootstrap/${BOOTSTRAP_REVISION}.complete"
 
 exec 9>/var/lock/cka-bootstrap.lock
@@ -59,7 +59,7 @@ export DEBIAN_FRONTEND=noninteractive
 rm -f /etc/apt/sources.list.d/helm-stable-debian.list
 
 apt-get update
-apt-get install -y apt-transport-https ca-certificates curl gpg openssl util-linux containerd etcd-client
+apt-get install -y apt-transport-https ca-certificates curl gpg openssl util-linux containerd etcd-client python3
 etcdctl version
 
 mkdir -p /etc/containerd
@@ -191,11 +191,29 @@ mkdir -p /root/.kube
 cp /etc/kubernetes/admin.conf /root/.kube/config
 chmod 600 /root/.kube/config
 
+echo "Publishing worker join command"
+join_dir="/var/lib/cka-bootstrap/join"
+mkdir -p "${join_dir}"
+join_command="$(kubeadm token create --ttl 2h --print-join-command)"
+cat >"${join_dir}/join.sh" <<EOF
+#!/usr/bin/env bash
+set -Eeuo pipefail
+${join_command} --cri-socket unix:///run/containerd/containerd.sock
+EOF
+chmod 0755 "${join_dir}/join.sh"
+
+if ! pgrep -f "python3 -m http.server 8080 --bind 0.0.0.0 --directory ${join_dir}" >/dev/null; then
+  (
+    exec 9>&-
+    nohup python3 -m http.server 8080 --bind 0.0.0.0 --directory "${join_dir}" \
+      >/var/log/cka-join-server.log 2>&1 &
+  )
+fi
+
 echo "Installing Calico ${CALICO_VERSION}"
 kubectl apply -f "https://raw.githubusercontent.com/projectcalico/calico/${CALICO_VERSION}/manifests/calico.yaml"
 
-echo "Allowing practice workloads on the single control-plane node"
-kubectl taint nodes --all node-role.kubernetes.io/control-plane- || true
+echo "Keeping the control-plane scheduling taint for multi-node CKA practice"
 
 echo "Installing Metrics Server ${METRICS_SERVER_VERSION}"
 kubectl apply -f "https://github.com/kubernetes-sigs/metrics-server/releases/download/${METRICS_SERVER_VERSION}/components.yaml"
@@ -355,6 +373,25 @@ EOF
 
 echo "Waiting for the node and system workloads"
 kubectl wait --for=condition=Ready node --all --timeout=600s
+echo "Waiting for worker nodes to join"
+for attempt in {1..120}; do
+  ready_worker_count="$(
+    kubectl get nodes --no-headers 2>/dev/null \
+      | awk '$3 !~ /control-plane/ && $2 == "Ready" { count++ } END { print count + 0 }'
+  )"
+
+  if [[ "${ready_worker_count}" -ge 1 ]]; then
+    break
+  fi
+
+  if [[ "${attempt}" -eq 120 ]]; then
+    echo "No worker node became Ready within the expected time"
+    kubectl get nodes -o wide || true
+    exit 1
+  fi
+
+  sleep 5
+done
 kubectl rollout status daemonset/calico-node -n kube-system --timeout=600s
 kubectl rollout status deployment/calico-kube-controllers -n kube-system --timeout=600s
 kubectl rollout status deployment/coredns -n kube-system --timeout=600s
@@ -399,6 +436,21 @@ if [[ -n "${personal_practice_manifest}" ]]; then
   printf '%s\n' "${personal_practice_manifest}" | kubectl apply -f -
 else
   echo "No local personal practice manifests found"
+fi
+
+echo "Checking for local personal practice script"
+personal_practice_script="$(
+  curl -fsS \
+    -H "Metadata-Flavor: Google" \
+    "http://metadata.google.internal/computeMetadata/v1/instance/attributes/personal-practice-script" \
+    || true
+)"
+
+if [[ -n "${personal_practice_script}" ]]; then
+  echo "Running local personal practice script"
+  printf '%s\n' "${personal_practice_script}" | bash
+else
+  echo "No local personal practice script found"
 fi
 
 echo "Verifying PostgreSQL"
