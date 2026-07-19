@@ -55,6 +55,7 @@ resource "google_compute_instance" "control_plane" {
     startup-script             = file("${path.module}/scripts/bootstrap-kubernetes.sh")
     personal-practice-manifest = local.personal_practice_manifest
     personal-practice-script   = local.personal_practice_script
+    expected-worker-count      = tostring(var.worker_count)
   }
 
   shielded_instance_config {

@@ -3,7 +3,7 @@
 This Terraform configuration creates a multi-node CKA practice lab:
 
 - one Ubuntu 24.04 LTS Compute Engine control-plane VM;
-- one or more Ubuntu 24.04 LTS Compute Engine worker VMs;
+- two Ubuntu 24.04 LTS Compute Engine worker VMs by default;
 - an external IP address on the project's existing `default` network;
 - OS Login for SSH access;
 - containerd and a `kubeadm` Kubernetes 1.36 control plane;
@@ -105,7 +105,7 @@ The reusable inputs are:
 | `machine_type` | VM CPU and memory size | `e2-small` |
 | `control_plane_machine_type` | Optional control-plane VM size override | `null` |
 | `worker_machine_type` | Optional worker VM size override | `null` |
-| `worker_count` | Number of worker VMs | `1` |
+| `worker_count` | Number of worker VMs | `2` |
 | `boot_disk_size_gb` | Boot disk size | `30` |
 
 ## One-command deployment

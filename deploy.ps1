@@ -101,7 +101,7 @@ if ($bootstrapScript -notmatch '(?m)^BOOTSTRAP_REVISION="([^"]+)"$') {
 
 $bootstrapRevision = $Matches[1]
 $completionMarker = "/var/lib/cka-bootstrap/${bootstrapRevision}.complete"
-$workerNames = @($workerNamesJson | ConvertFrom-Json)
+$workerNames = [string[]](ConvertFrom-Json -InputObject $workerNamesJson)
 $expectedNodeCount = 1 + $workerNames.Count
 
 Clear-PuttyHostKeyForAddress -IpAddress $externalIp
@@ -175,6 +175,31 @@ while ((Get-Date) -lt $deadline) {
 
 if (-not $ready) {
   throw "Cluster did not become ready within $TimeoutMinutes minutes. Connect to the VM and run: sudo tail -n 100 /var/log/cka-bootstrap.log"
+}
+
+Write-Host "Waiting for $expectedNodeCount Kubernetes node(s) to be registered..."
+$nodeDeadline = (Get-Date).AddMinutes(10)
+$nodeCountReady = $false
+
+while ((Get-Date) -lt $nodeDeadline) {
+  $nodeCountText = & $gcloudCommand compute ssh $instanceName `
+    --project $projectId `
+    --zone $zone `
+    --strict-host-key-checking=no `
+    --command "sudo kubectl --kubeconfig /etc/kubernetes/admin.conf get nodes --no-headers 2>/dev/null | wc -l" `
+    --quiet
+
+  if ($LASTEXITCODE -eq 0 -and [int]($nodeCountText.Trim()) -eq $expectedNodeCount) {
+    $nodeCountReady = $true
+    break
+  }
+
+  Write-Host "Waiting for all expected nodes to register..."
+  Start-Sleep -Seconds 10
+}
+
+if (-not $nodeCountReady) {
+  throw "Expected $expectedNodeCount Kubernetes node(s), but they did not all register within 10 minutes."
 }
 
 Write-Host "Verifying Kubernetes node health..."

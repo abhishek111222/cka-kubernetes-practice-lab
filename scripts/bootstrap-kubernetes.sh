@@ -374,18 +374,25 @@ EOF
 echo "Waiting for the node and system workloads"
 kubectl wait --for=condition=Ready node --all --timeout=600s
 echo "Waiting for worker nodes to join"
+expected_worker_count="$(
+  curl -fsS \
+    -H "Metadata-Flavor: Google" \
+    "http://metadata.google.internal/computeMetadata/v1/instance/attributes/expected-worker-count" \
+    || echo 1
+)"
+
 for attempt in {1..120}; do
   ready_worker_count="$(
     kubectl get nodes --no-headers 2>/dev/null \
       | awk '$3 !~ /control-plane/ && $2 == "Ready" { count++ } END { print count + 0 }'
   )"
 
-  if [[ "${ready_worker_count}" -ge 1 ]]; then
+  if [[ "${ready_worker_count}" -ge "${expected_worker_count}" ]]; then
     break
   fi
 
   if [[ "${attempt}" -eq 120 ]]; then
-    echo "No worker node became Ready within the expected time"
+    echo "Only ${ready_worker_count}/${expected_worker_count} worker nodes became Ready within the expected time"
     kubectl get nodes -o wide || true
     exit 1
   fi

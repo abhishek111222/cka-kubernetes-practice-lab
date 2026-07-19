@@ -8,5 +8,5 @@ zone       = "europe-west2-a"
 # machine_type                = "e2-small"
 # control_plane_machine_type  = "e2-small"
 # worker_machine_type         = "e2-small"
-# worker_count                = 1
+# worker_count                = 2
 # boot_disk_size_gb           = 30
