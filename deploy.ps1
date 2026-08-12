@@ -282,6 +282,16 @@ Invoke-NativeCommand -Command $gcloudCommand -Arguments @(
   "--quiet"
 )
 
+Write-Host "Verifying cert-manager CRDs and practice resources..."
+Invoke-NativeCommand -Command $gcloudCommand -Arguments @(
+  "compute", "ssh", $instanceName,
+  "--project", $projectId,
+  "--zone", $zone,
+  "--strict-host-key-checking=no",
+  "--command", "sudo kubectl --kubeconfig /etc/kubernetes/admin.conf get crd issuers.cert-manager.io clusterissuers.cert-manager.io certificates.cert-manager.io && sudo kubectl --kubeconfig /etc/kubernetes/admin.conf get clusterissuer cka-selfsigned && sudo kubectl --kubeconfig /etc/kubernetes/admin.conf get issuer,certificate -n cert-manager-practice",
+  "--quiet"
+)
+
 Write-Host "Verifying NGINX Gateway Fabric..."
 Invoke-NativeCommand -Command $gcloudCommand -Arguments @(
   "compute", "ssh", $instanceName,

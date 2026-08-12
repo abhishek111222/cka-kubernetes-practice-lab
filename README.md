@@ -13,6 +13,7 @@ This Terraform configuration creates a multi-node CKA practice lab:
 - Helm, installed from the current Buildkite-hosted Debian repository.
 - standalone Kustomize v5.8.1, verified against its published SHA-256 checksum.
 - Gateway API v1.5.1 standard CRDs and NGINX Gateway Fabric installed by Helm as a NodePort service.
+- cert-manager v1.21.0 with `Issuer`, `ClusterIssuer`, and `Certificate` CRDs plus a self-signed practice certificate.
 - Rancher Local Path Provisioner v0.0.32 with StorageClass `local-path` for PVC practice.
 - PostgreSQL 18.4 with generated credentials and persistent single-node storage.
 
@@ -116,7 +117,7 @@ After configuring `terraform.tfvars` and authenticating, run:
 .\deploy.ps1
 ```
 
-This one command initializes and validates Terraform, creates and applies a saved plan, creates one control-plane VM plus `worker_count` worker VM(s), runs the current bootstrap revision, joins the workers, and verifies the Kubernetes nodes, Metrics Server, Helm, standalone Kustomize, crictl, etcdctl, Gateway API CRDs, NGINX Gateway Fabric, Local Path Provisioner, and PostgreSQL. The control-plane bootstrap is [scripts/bootstrap-kubernetes.sh](scripts/bootstrap-kubernetes.sh), and worker bootstrap is [scripts/bootstrap-worker.sh](scripts/bootstrap-worker.sh); Terraform sends them to Compute Engine as startup-script metadata.
+This one command initializes and validates Terraform, creates and applies a saved plan, creates one control-plane VM plus `worker_count` worker VM(s), runs the current bootstrap revision, joins the workers, and verifies the Kubernetes nodes, Metrics Server, Helm, standalone Kustomize, crictl, etcdctl, Gateway API CRDs, cert-manager, NGINX Gateway Fabric, Local Path Provisioner, and PostgreSQL. The control-plane bootstrap is [scripts/bootstrap-kubernetes.sh](scripts/bootstrap-kubernetes.sh), and worker bootstrap is [scripts/bootstrap-worker.sh](scripts/bootstrap-worker.sh); Terraform sends them to Compute Engine as startup-script metadata.
 
 The automated health checks disable strict SSH host-key checking. This is intentional for the disposable lab: deleting and recreating a VM can assign a previously used IP address with a new host key. The destination IP is read directly from Terraform's authenticated GCP state, and no general SSH configuration on the laptop is changed.
 
@@ -223,15 +224,22 @@ Verify the StorageClass with:
 sudo kubectl --kubeconfig /etc/kubernetes/admin.conf get storageclass local-path
 ```
 
-Verify the Gateway API CRDs, NGINX Gateway Fabric, and PostgreSQL with:
+Verify the Gateway API CRDs, cert-manager resources, NGINX Gateway Fabric, and PostgreSQL with:
 
 ```bash
 sudo kubectl --kubeconfig /etc/kubernetes/admin.conf api-resources --api-group gateway.networking.k8s.io
+sudo kubectl --kubeconfig /etc/kubernetes/admin.conf api-resources --api-group cert-manager.io
+sudo kubectl --kubeconfig /etc/kubernetes/admin.conf get crd issuers.cert-manager.io clusterissuers.cert-manager.io certificates.cert-manager.io
+sudo kubectl --kubeconfig /etc/kubernetes/admin.conf get pods -n cert-manager
+sudo kubectl --kubeconfig /etc/kubernetes/admin.conf get clusterissuer cka-selfsigned
+sudo kubectl --kubeconfig /etc/kubernetes/admin.conf get issuer,certificate,secret -n cert-manager-practice
 sudo kubectl --kubeconfig /etc/kubernetes/admin.conf get pods,svc -n nginx-gateway
 sudo kubectl --kubeconfig /etc/kubernetes/admin.conf get pods,service,pvc -n database
 sudo kubectl --kubeconfig /etc/kubernetes/admin.conf exec -n database deployment/postgres -- \
   sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT version();"'
 ```
+
+The cert-manager practice namespace creates a self-signed `Certificate` named `cka-sample-cert` and stores its TLS material in the `cka-sample-tls` Secret. It is for CRD and certificate workflow practice only; it is not trusted by browsers or external clients.
 
 The PostgreSQL Service is cluster-internal at `postgres.database.svc.cluster.local:5432`. Its generated username, password, and database name are stored in the `postgres-credentials` Secret. The hostPath-backed volume is suitable for this disposable single-node practice cluster, not for a production database.
 
