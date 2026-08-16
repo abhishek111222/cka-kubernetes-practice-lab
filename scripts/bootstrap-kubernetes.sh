@@ -12,11 +12,12 @@ GATEWAY_API_VERSION="v1.5.1"
 CERT_MANAGER_VERSION="v1.21.0"
 NGINX_GATEWAY_FABRIC_CHART="oci://ghcr.io/nginx/charts/nginx-gateway-fabric"
 LOCAL_PATH_PROVISIONER_VERSION="v0.0.32"
+ARGOCD_VERSION="v3.4.2"
 POSTGRES_VERSION="18.4-bookworm"
 HELM_APT_KEY_FINGERPRINT="DDF78C3E6EBB2D2CC223C95C62BA89D07698DBC6"
 KUSTOMIZE_VERSION="v5.8.1"
 POD_NETWORK_CIDR="192.168.0.0/16"
-BOOTSTRAP_REVISION="kubernetes-v1.36-crictl-v1.36.0-etcd-client-calico-v3.32.0-metrics-v0.8.1-gateway-v1.5.1-cert-manager-v1.21.0-nginx-gateway-fabric-local-path-v0.0.32-postgres-18.4-bookworm-kustomize-v5.8.1-multinode-r12"
+BOOTSTRAP_REVISION="kubernetes-v1.36-crictl-v1.36.0-etcd-client-calico-v3.32.0-metrics-v0.8.1-gateway-v1.5.1-cert-manager-v1.21.0-nginx-gateway-fabric-local-path-v0.0.32-argocd-v3.4.2-postgres-18.4-bookworm-kustomize-v5.8.1-multinode-r13"
 COMPLETION_MARKER="/var/lib/cka-bootstrap/${BOOTSTRAP_REVISION}.complete"
 
 exec 9>/var/lock/cka-bootstrap.lock
@@ -246,6 +247,11 @@ helm upgrade --install ngf "${NGINX_GATEWAY_FABRIC_CHART}" \
   --wait \
   --timeout 10m
 
+echo "Installing Argo CD ${ARGOCD_VERSION}"
+kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
+kubectl apply -n argocd --server-side=true --force-conflicts -f \
+  "https://raw.githubusercontent.com/argoproj/argo-cd/${ARGOCD_VERSION}/manifests/install.yaml"
+
 echo "Installing PostgreSQL ${POSTGRES_VERSION}"
 kubectl create namespace database --dry-run=client -o yaml | kubectl apply -f -
 
@@ -454,6 +460,12 @@ EOF
 kubectl rollout status deployment -n nginx-gateway \
   -l app.kubernetes.io/instance=ngf --timeout=600s
 kubectl wait --for=condition=Accepted gatewayclass/nginx --timeout=300s
+for workload in $(kubectl get deployment -n argocd -o name); do
+  kubectl rollout status "${workload}" -n argocd --timeout=600s
+done
+for workload in $(kubectl get statefulset -n argocd -o name); do
+  kubectl rollout status "${workload}" -n argocd --timeout=600s
+done
 kubectl rollout status deployment/postgres -n database --timeout=600s
 
 echo "Ensuring the PostgreSQL practice database exists"
@@ -486,6 +498,13 @@ kubectl get gatewayclass/nginx >/dev/null
 echo "Verifying Local Path Provisioner"
 kubectl get storageclass/local-path >/dev/null
 kubectl get deployment/local-path-provisioner -n local-path-storage >/dev/null
+
+echo "Verifying Argo CD"
+for crd in applications appprojects applicationsets; do
+  kubectl get "customresourcedefinition/${crd}.argoproj.io" >/dev/null
+done
+kubectl get pods -n argocd >/dev/null
+kubectl get service/argocd-server -n argocd >/dev/null
 
 echo "Checking for local personal practice manifests"
 personal_practice_manifest="$(

@@ -312,6 +312,16 @@ Invoke-NativeCommand -Command $gcloudCommand -Arguments @(
   "--quiet"
 )
 
+Write-Host "Verifying Argo CD..."
+Invoke-NativeCommand -Command $gcloudCommand -Arguments @(
+  "compute", "ssh", $instanceName,
+  "--project", $projectId,
+  "--zone", $zone,
+  "--strict-host-key-checking=no",
+  "--command", "sudo -n kubectl --kubeconfig /etc/kubernetes/admin.conf get crd applications.argoproj.io appprojects.argoproj.io applicationsets.argoproj.io && sudo -n kubectl --kubeconfig /etc/kubernetes/admin.conf get pods,svc -n argocd",
+  "--quiet"
+)
+
 Write-Host "Verifying PostgreSQL..."
 Invoke-NativeCommand -Command $gcloudCommand -Arguments @(
   "compute", "ssh", $instanceName,
