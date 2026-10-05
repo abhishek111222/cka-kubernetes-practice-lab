@@ -52,3 +52,37 @@ output "bootstrap_log_command" {
   description = "Command to follow Kubernetes bootstrap progress after connecting to the VM."
   value       = "sudo tail -f /var/log/cka-bootstrap.log"
 }
+
+output "kube_build_control_plane_name" {
+  description = "Name of the blank kube-build control-plane VM."
+  value       = google_compute_instance.kube_build_control_plane.name
+}
+
+output "kube_build_worker_name" {
+  description = "Name of the blank kube-build worker VM."
+  value       = google_compute_instance.kube_build_worker.name
+}
+
+output "kube_build_instance_names" {
+  description = "Names of the blank kube-build VMs."
+  value = [
+    google_compute_instance.kube_build_control_plane.name,
+    google_compute_instance.kube_build_worker.name,
+  ]
+}
+
+output "kube_build_internal_ips" {
+  description = "Private IPv4 addresses assigned to the blank kube-build VMs."
+  value = [
+    google_compute_instance.kube_build_control_plane.network_interface[0].network_ip,
+    google_compute_instance.kube_build_worker.network_interface[0].network_ip,
+  ]
+}
+
+output "kube_build_ssh_commands" {
+  description = "Commands for connecting to the blank kube-build VMs through gcloud and OS Login."
+  value = {
+    control_plane = "gcloud compute ssh ${google_compute_instance.kube_build_control_plane.name} --project ${var.project_id} --zone ${var.zone}"
+    worker        = "gcloud compute ssh ${google_compute_instance.kube_build_worker.name} --project ${var.project_id} --zone ${var.zone}"
+  }
+}
