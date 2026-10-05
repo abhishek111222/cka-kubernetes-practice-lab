@@ -155,6 +155,7 @@ function Get-TerraformTargetArguments {
       @(
         "google_project_service.compute",
         "google_compute_firewall.kube_build_internal",
+        "google_compute_firewall.kube_build_iap_ssh",
         "google_compute_instance.kube_build_control_plane",
         "google_compute_instance.kube_build_worker"
       )
@@ -269,6 +270,11 @@ if (-not $terraformApplySucceeded) {
   }
 
   throw "Terraform apply failed because none of the configured zone/machine type combinations had capacity."
+}
+
+if ($selectedEnvironment -eq "Both") {
+  Write-Host "Build-from-scratch VMs have been requested. You can use these while the CKA cluster bootstrap check continues:"
+  terraform output kube_build_ssh_commands
 }
 
 if ($selectedEnvironment -eq "KubeBuild") {

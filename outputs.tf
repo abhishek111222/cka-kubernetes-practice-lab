@@ -83,6 +83,6 @@ output "kube_build_ssh_commands" {
   description = "Commands for connecting to the blank kube-build VMs through gcloud and OS Login."
   value = {
     control_plane = "gcloud compute ssh ${google_compute_instance.kube_build_control_plane.name} --project ${var.project_id} --zone ${var.zone}"
-    worker        = "gcloud compute ssh ${google_compute_instance.kube_build_worker.name} --project ${var.project_id} --zone ${var.zone}"
+    worker        = "gcloud compute ssh ${google_compute_instance.kube_build_worker.name} --project ${var.project_id} --zone ${var.zone} --tunnel-through-iap"
   }
 }

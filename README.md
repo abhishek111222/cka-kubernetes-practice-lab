@@ -206,7 +206,11 @@ When `KubeBuild` is selected, `deploy.ps1` creates only:
 - `abhis-kube-build-control-plane`
 - `abhis-kube-build-worker-1`
 
-Those VMs use Ubuntu 24.04 LTS, OS Login, the default VPC, and an internal firewall tag that allows the two build VMs to communicate privately. They do not receive Kubernetes startup scripts.
+Those VMs use Ubuntu 24.04 LTS, OS Login, the default VPC, and an internal firewall tag that allows the two build VMs to communicate privately. They do not receive Kubernetes startup scripts. To avoid needing a fifth regional external IP, the kube-build worker is created without an external IP and is accessed through IAP:
+
+```powershell
+gcloud compute ssh abhis-kube-build-worker-1 --project <project-id> --zone <zone> --tunnel-through-iap
+```
 
 The automated health checks disable strict SSH host-key checking. This is intentional for the disposable lab: deleting and recreating a VM can assign a previously used IP address with a new host key. The destination IP is read directly from Terraform's authenticated GCP state, and no general SSH configuration on the laptop is changed.
 

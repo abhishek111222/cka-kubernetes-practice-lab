@@ -48,6 +48,21 @@ resource "google_compute_firewall" "kube_build_internal" {
   depends_on = [google_project_service.compute]
 }
 
+resource "google_compute_firewall" "kube_build_iap_ssh" {
+  name    = "${var.kube_build_instance_name}-iap-ssh"
+  network = "default"
+
+  allow {
+    protocol = "tcp"
+    ports    = ["22"]
+  }
+
+  source_ranges = ["35.235.240.0/20"]
+  target_tags   = ["kube-build-practice"]
+
+  depends_on = [google_project_service.compute]
+}
+
 resource "google_compute_instance" "control_plane" {
   name         = local.control_plane_name
   zone         = var.zone
@@ -197,8 +212,6 @@ resource "google_compute_instance" "kube_build_worker" {
 
   network_interface {
     network = "default"
-
-    access_config {}
   }
 
   metadata = {
@@ -217,5 +230,8 @@ resource "google_compute_instance" "kube_build_worker" {
     provisioning_model  = "STANDARD"
   }
 
-  depends_on = [google_compute_instance.kube_build_control_plane]
+  depends_on = [
+    google_compute_instance.kube_build_control_plane,
+    google_compute_firewall.kube_build_iap_ssh,
+  ]
 }
