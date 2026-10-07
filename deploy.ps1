@@ -215,14 +215,13 @@ $initialStateHadInstances = @($initialStateLines | Where-Object { $_ -like "goog
 
 foreach ($candidateMachineType in $MachineTypeCandidates) {
   foreach ($candidateZone in $ZoneCandidates) {
-    Write-Host "Creating the reviewed Terraform execution plan for zone ${candidateZone} and machine type ${candidateMachineType}..."
+    Write-Host "Creating the reviewed Terraform execution plan for zone ${candidateZone} and worker/default machine type ${candidateMachineType}..."
     $planArguments = @(
       "plan",
       "-input=false",
       "-out", "deploy.tfplan",
       "-var", "zone=${candidateZone}",
       "-var", "machine_type=${candidateMachineType}",
-      "-var", "control_plane_machine_type=${candidateMachineType}",
       "-var", "worker_machine_type=${candidateMachineType}"
     ) + $targetArguments
     $planResult = Invoke-NativeCommandWithOutput -Command "terraform" -Arguments $planArguments
@@ -232,7 +231,7 @@ foreach ($candidateMachineType in $MachineTypeCandidates) {
     }
 
     if ($planResult.ExitCode -ne 0) {
-      throw "Terraform plan failed for zone ${candidateZone} and machine type ${candidateMachineType}."
+      throw "Terraform plan failed for zone ${candidateZone} and worker/default machine type ${candidateMachineType}."
     }
 
     Write-Host "Applying infrastructure and Kubernetes bootstrap metadata..."
@@ -250,10 +249,10 @@ foreach ($candidateMachineType in $MachineTypeCandidates) {
 
     $applyOutputText = $lastApplyOutput -join [Environment]::NewLine
     if (-not (Test-GcpCapacityError -Output $applyOutputText)) {
-      throw "Terraform apply failed for a non-capacity reason in zone ${candidateZone} with machine type ${candidateMachineType}."
+      throw "Terraform apply failed for a non-capacity reason in zone ${candidateZone} with worker/default machine type ${candidateMachineType}."
     }
 
-    Write-Host "GCP capacity was unavailable in zone ${candidateZone} with machine type ${candidateMachineType}; trying the next option..."
+    Write-Host "GCP capacity was unavailable in zone ${candidateZone} with worker/default machine type ${candidateMachineType}; trying the next option..."
     if ($initialStateHadInstances) {
       throw "Capacity was unavailable, and Terraform already had VM instances in state before this deploy. Refusing automatic fallback to avoid changing an existing cluster. Run .\destroy.ps1 first if you want a fresh fallback deploy."
     }
