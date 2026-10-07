@@ -9,13 +9,15 @@ CRICTL_VERSION="v1.36.0"
 CALICO_VERSION="v3.32.0"
 METRICS_SERVER_VERSION="v0.8.1"
 GATEWAY_API_VERSION="v1.5.1"
+CERT_MANAGER_VERSION="v1.21.0"
 NGINX_GATEWAY_FABRIC_CHART="oci://ghcr.io/nginx/charts/nginx-gateway-fabric"
 LOCAL_PATH_PROVISIONER_VERSION="v0.0.32"
+ARGOCD_VERSION="v3.4.2"
 POSTGRES_VERSION="18.4-bookworm"
 HELM_APT_KEY_FINGERPRINT="DDF78C3E6EBB2D2CC223C95C62BA89D07698DBC6"
 KUSTOMIZE_VERSION="v5.8.1"
 POD_NETWORK_CIDR="192.168.0.0/16"
-BOOTSTRAP_REVISION="kubernetes-v1.36-crictl-v1.36.0-etcd-client-calico-v3.32.0-metrics-v0.8.1-gateway-v1.5.1-nginx-gateway-fabric-local-path-v0.0.32-postgres-18.4-bookworm-kustomize-v5.8.1-multinode-r11"
+BOOTSTRAP_REVISION="kubernetes-v1.36-crictl-v1.36.0-etcd-client-calico-v3.32.0-metrics-v0.8.1-gateway-v1.5.1-cert-manager-v1.21.0-nginx-gateway-fabric-local-path-v0.0.32-argocd-v3.4.2-postgres-18.4-bookworm-kustomize-v5.8.1-multinode-r13"
 COMPLETION_MARKER="/var/lib/cka-bootstrap/${BOOTSTRAP_REVISION}.complete"
 
 exec 9>/var/lock/cka-bootstrap.lock
@@ -233,6 +235,10 @@ echo "Installing Gateway API ${GATEWAY_API_VERSION} standard CRDs"
 kubectl apply --server-side=true -f \
   "https://github.com/kubernetes-sigs/gateway-api/releases/download/${GATEWAY_API_VERSION}/standard-install.yaml"
 
+echo "Installing cert-manager ${CERT_MANAGER_VERSION}"
+kubectl apply -f \
+  "https://github.com/cert-manager/cert-manager/releases/download/${CERT_MANAGER_VERSION}/cert-manager.yaml"
+
 echo "Installing NGINX Gateway Fabric"
 helm upgrade --install ngf "${NGINX_GATEWAY_FABRIC_CHART}" \
   --create-namespace \
@@ -240,6 +246,11 @@ helm upgrade --install ngf "${NGINX_GATEWAY_FABRIC_CHART}" \
   --set nginx.service.type=NodePort \
   --wait \
   --timeout 10m
+
+echo "Installing Argo CD ${ARGOCD_VERSION}"
+kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
+kubectl apply -n argocd --server-side=true --force-conflicts -f \
+  "https://raw.githubusercontent.com/argoproj/argo-cd/${ARGOCD_VERSION}/manifests/install.yaml"
 
 echo "Installing PostgreSQL ${POSTGRES_VERSION}"
 kubectl create namespace database --dry-run=client -o yaml | kubectl apply -f -
@@ -404,9 +415,57 @@ kubectl rollout status deployment/calico-kube-controllers -n kube-system --timeo
 kubectl rollout status deployment/coredns -n kube-system --timeout=600s
 kubectl rollout status deployment/metrics-server -n kube-system --timeout=300s
 kubectl rollout status deployment/local-path-provisioner -n local-path-storage --timeout=300s
+kubectl rollout status deployment/cert-manager -n cert-manager --timeout=600s
+kubectl rollout status deployment/cert-manager-cainjector -n cert-manager --timeout=600s
+kubectl rollout status deployment/cert-manager-webhook -n cert-manager --timeout=600s
+
+echo "Creating cert-manager practice issuer and certificate resources"
+kubectl apply -f - <<EOF
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cert-manager-practice
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: cka-selfsigned
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: cka-selfsigned
+  namespace: cert-manager-practice
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: cka-sample-cert
+  namespace: cert-manager-practice
+spec:
+  secretName: cka-sample-tls
+  commonName: cka.example.local
+  dnsNames:
+    - cka.example.local
+  issuerRef:
+    name: cka-selfsigned
+    kind: Issuer
+    group: cert-manager.io
+EOF
+
 kubectl rollout status deployment -n nginx-gateway \
   -l app.kubernetes.io/instance=ngf --timeout=600s
 kubectl wait --for=condition=Accepted gatewayclass/nginx --timeout=300s
+for workload in $(kubectl get deployment -n argocd -o name); do
+  kubectl rollout status "${workload}" -n argocd --timeout=600s
+done
+for workload in $(kubectl get statefulset -n argocd -o name); do
+  kubectl rollout status "${workload}" -n argocd --timeout=600s
+done
 kubectl rollout status deployment/postgres -n database --timeout=600s
 
 echo "Ensuring the PostgreSQL practice database exists"
@@ -421,6 +480,16 @@ for crd in gatewayclasses gateways httproutes grpcroutes referencegrants; do
   kubectl get "customresourcedefinition/${crd}.gateway.networking.k8s.io" >/dev/null
 done
 
+echo "Verifying cert-manager CRDs and practice resources"
+for crd in issuers clusterissuers certificates certificaterequests; do
+  kubectl get "customresourcedefinition/${crd}.cert-manager.io" >/dev/null
+done
+kubectl get clusterissuer/cka-selfsigned >/dev/null
+kubectl get issuer/cka-selfsigned -n cert-manager-practice >/dev/null
+kubectl wait --for=condition=Ready certificate/cka-sample-cert \
+  -n cert-manager-practice --timeout=300s
+kubectl get secret/cka-sample-tls -n cert-manager-practice >/dev/null
+
 echo "Verifying NGINX Gateway Fabric"
 helm status ngf --namespace nginx-gateway >/dev/null
 kubectl get pods -n nginx-gateway -l app.kubernetes.io/instance=ngf >/dev/null
@@ -429,6 +498,13 @@ kubectl get gatewayclass/nginx >/dev/null
 echo "Verifying Local Path Provisioner"
 kubectl get storageclass/local-path >/dev/null
 kubectl get deployment/local-path-provisioner -n local-path-storage >/dev/null
+
+echo "Verifying Argo CD"
+for crd in applications appprojects applicationsets; do
+  kubectl get "customresourcedefinition/${crd}.argoproj.io" >/dev/null
+done
+kubectl get pods -n argocd >/dev/null
+kubectl get service/argocd-server -n argocd >/dev/null
 
 echo "Checking for local personal practice manifests"
 personal_practice_manifest="$(
