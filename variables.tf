@@ -38,9 +38,9 @@ variable "machine_type" {
 }
 
 variable "control_plane_machine_type" {
-  description = "Compute Engine machine type for the control-plane VM. Defaults to machine_type."
+  description = "Compute Engine machine type for the control-plane VM. Defaults to e2-medium so Helm and control-plane workloads have enough memory."
   type        = string
-  default     = null
+  default     = "e2-medium"
 }
 
 variable "worker_machine_type" {

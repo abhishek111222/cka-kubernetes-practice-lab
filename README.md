@@ -135,7 +135,7 @@ The reusable inputs are:
 | `zone` | VM zone | `europe-west2-a` |
 | `instance_name` | VM name | `abhis-cka-vm` |
 | `machine_type` | VM CPU and memory size | `e2-small` |
-| `control_plane_machine_type` | Optional control-plane VM size override | `null` |
+| `control_plane_machine_type` | Control-plane VM size | `e2-medium` |
 | `worker_machine_type` | Optional worker VM size override | `null` |
 | `worker_count` | Number of worker VMs | `2` |
 | `boot_disk_size_gb` | Boot disk size | `30` |
@@ -344,7 +344,7 @@ sudo kubectl --kubeconfig /etc/kubernetes/admin.conf port-forward svc/argocd-ser
 
 The PostgreSQL Service is cluster-internal at `postgres.database.svc.cluster.local:5432`. Its generated username, password, and database name are stored in the `postgres-credentials` Secret. The hostPath-backed volume is suitable for this disposable single-node practice cluster, not for a production database.
 
-The default `e2-small` VMs have only 2 GB RAM each, which is Kubernetes' practical minimum. Change `control_plane_machine_type` or `worker_machine_type` to `e2-medium` if mock workloads encounter memory pressure.
+Worker VMs default to `e2-small`, but the control-plane defaults to `e2-medium`. This is intentional: `e2-small` has only about 2 GB RAM, and Helm/chart rendering plus the Kubernetes control-plane can trigger Linux OOM kills on that size. Use `worker_machine_type = "e2-medium"` too only if your practice workloads need more worker memory.
 
 ## Troubleshooting
 
