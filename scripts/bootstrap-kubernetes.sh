@@ -17,7 +17,7 @@ POSTGRES_VERSION="18.4-bookworm"
 HELM_APT_KEY_FINGERPRINT="DDF78C3E6EBB2D2CC223C95C62BA89D07698DBC6"
 KUSTOMIZE_VERSION="v5.8.1"
 POD_NETWORK_CIDR="192.168.0.0/16"
-BOOTSTRAP_REVISION="kubernetes-v1.36-crictl-v1.36.0-etcd-client-calico-v3.32.0-metrics-v0.8.1-gateway-v1.5.1-cert-manager-v1.21.0-nginx-gateway-fabric-local-path-v0.0.32-argocd-v3.4.2-postgres-18.4-bookworm-kustomize-v5.8.1-multinode-r13"
+BOOTSTRAP_REVISION="kubernetes-v1.36-crictl-v1.36.0-etcd-client-calico-v3.32.0-metrics-v0.8.1-gateway-v1.5.1-cert-manager-v1.21.0-nginx-gateway-fabric-local-path-v0.0.32-argocd-v3.4.2-postgres-18.4-bookworm-kustomize-v5.8.1-multinode-r14"
 COMPLETION_MARKER="/var/lib/cka-bootstrap/${BOOTSTRAP_REVISION}.complete"
 
 exec 9>/var/lock/cka-bootstrap.lock
@@ -32,6 +32,25 @@ if [[ -f "${COMPLETION_MARKER}" ]]; then
 fi
 
 mkdir -p "$(dirname "${COMPLETION_MARKER}")"
+
+download_file() {
+  local url="$1"
+  local output="$2"
+  local attempts="${3:-8}"
+
+  for attempt in $(seq 1 "${attempts}"); do
+    if curl -fL --connect-timeout 20 --retry 5 --retry-delay 3 --retry-all-errors \
+      "${url}" -o "${output}"; then
+      return 0
+    fi
+
+    echo "Download failed (${attempt}/${attempts}): ${url}"
+    sleep $((attempt * 5))
+  done
+
+  echo "Download failed after ${attempts} attempts: ${url}"
+  return 1
+}
 
 echo "Configuring kernel prerequisites"
 swapoff -a
@@ -84,10 +103,10 @@ crictl_archive="crictl-${CRICTL_VERSION}-linux-${crictl_arch}.tar.gz"
 crictl_release_url="https://github.com/kubernetes-sigs/cri-tools/releases/download/${CRICTL_VERSION}"
 crictl_tmp_dir="$(mktemp -d)"
 
-curl -fsSL "${crictl_release_url}/${crictl_archive}" \
-  -o "${crictl_tmp_dir}/${crictl_archive}"
-curl -fsSL "${crictl_release_url}/${crictl_archive}.sha256" \
-  -o "${crictl_tmp_dir}/${crictl_archive}.sha256"
+download_file "${crictl_release_url}/${crictl_archive}" \
+  "${crictl_tmp_dir}/${crictl_archive}"
+download_file "${crictl_release_url}/${crictl_archive}.sha256" \
+  "${crictl_tmp_dir}/${crictl_archive}.sha256"
 
 (
   cd "${crictl_tmp_dir}"
@@ -126,8 +145,8 @@ systemctl enable kubelet
 
 echo "Installing Helm"
 helm_key_file="$(mktemp)"
-curl -fsSL "https://packages.buildkite.com/helm-linux/helm-debian/gpgkey" \
-  -o "${helm_key_file}"
+download_file "https://packages.buildkite.com/helm-linux/helm-debian/gpgkey" \
+  "${helm_key_file}"
 
 helm_key_fingerprint="$(
   gpg --show-keys --with-colons "${helm_key_file}" \
@@ -165,10 +184,10 @@ kustomize_archive="kustomize_${KUSTOMIZE_VERSION}_linux_${kustomize_arch}.tar.gz
 kustomize_release_url="https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2F${KUSTOMIZE_VERSION}"
 kustomize_tmp_dir="$(mktemp -d)"
 
-curl -fsSL "${kustomize_release_url}/${kustomize_archive}" \
-  -o "${kustomize_tmp_dir}/${kustomize_archive}"
-curl -fsSL "${kustomize_release_url}/checksums.txt" \
-  -o "${kustomize_tmp_dir}/checksums.txt"
+download_file "${kustomize_release_url}/${kustomize_archive}" \
+  "${kustomize_tmp_dir}/${kustomize_archive}"
+download_file "${kustomize_release_url}/checksums.txt" \
+  "${kustomize_tmp_dir}/checksums.txt"
 
 (
   cd "${kustomize_tmp_dir}"
@@ -196,6 +215,8 @@ chmod 600 /root/.kube/config
 echo "Publishing worker join command"
 join_dir="/var/lib/cka-bootstrap/join"
 mkdir -p "${join_dir}"
+cp /etc/kubernetes/admin.conf "${join_dir}/admin.conf"
+chmod 0644 "${join_dir}/admin.conf"
 join_command="$(kubeadm token create --ttl 2h --print-join-command)"
 cat >"${join_dir}/join.sh" <<EOF
 #!/usr/bin/env bash
