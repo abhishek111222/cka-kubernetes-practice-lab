@@ -38,9 +38,9 @@ variable "machine_type" {
 }
 
 variable "control_plane_machine_type" {
-  description = "Compute Engine machine type for the control-plane VM. Defaults to machine_type."
+  description = "Compute Engine machine type for the control-plane VM. Defaults to e2-medium so Helm and control-plane workloads have enough memory."
   type        = string
-  default     = null
+  default     = "e2-medium"
 }
 
 variable "worker_machine_type" {
@@ -77,5 +77,39 @@ variable "labels" {
   default = {
     environment = "cka-practice"
     managed_by  = "terraform"
+  }
+}
+
+variable "kube_build_instance_name" {
+  description = "Base name for the blank build-from-scratch Kubernetes practice VMs."
+  type        = string
+  default     = "abhis-kube-build"
+
+  validation {
+    condition     = can(regex("^[a-z]([-a-z0-9]*[a-z0-9])?$", var.kube_build_instance_name))
+    error_message = "kube_build_instance_name must be a valid GCP resource name using lowercase letters, digits, and hyphens."
+  }
+}
+
+variable "kube_build_control_plane_machine_type" {
+  description = "Compute Engine machine type for the blank kube-build control-plane VM."
+  type        = string
+  default     = "e2-medium"
+}
+
+variable "kube_build_worker_machine_type" {
+  description = "Compute Engine machine type for the blank kube-build worker VM."
+  type        = string
+  default     = "e2-small"
+}
+
+variable "kube_build_boot_disk_size_gb" {
+  description = "Boot disk size in GiB for the blank kube-build VMs."
+  type        = number
+  default     = 30
+
+  validation {
+    condition     = var.kube_build_boot_disk_size_gb >= 20
+    error_message = "kube_build_boot_disk_size_gb must be at least 20 GiB."
   }
 }

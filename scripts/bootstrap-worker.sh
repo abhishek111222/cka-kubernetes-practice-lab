@@ -6,7 +6,7 @@ exec > >(tee -a /var/log/cka-worker-bootstrap.log) 2>&1
 
 KUBERNETES_MINOR="v1.36"
 CRICTL_VERSION="v1.36.0"
-BOOTSTRAP_REVISION="worker-kubernetes-v1.36-crictl-v1.36.0-r1"
+BOOTSTRAP_REVISION="worker-kubernetes-v1.36-crictl-v1.36.0-r2"
 COMPLETION_MARKER="/var/lib/cka-bootstrap/${BOOTSTRAP_REVISION}.complete"
 
 exec 9>/var/lock/cka-worker-bootstrap.lock
@@ -26,6 +26,25 @@ metadata_value() {
   curl -fsS \
     -H "Metadata-Flavor: Google" \
     "http://metadata.google.internal/computeMetadata/v1/instance/attributes/$1"
+}
+
+download_file() {
+  local url="$1"
+  local output="$2"
+  local attempts="${3:-8}"
+
+  for attempt in $(seq 1 "${attempts}"); do
+    if curl -fL --connect-timeout 20 --retry 5 --retry-delay 3 --retry-all-errors \
+      "${url}" -o "${output}"; then
+      return 0
+    fi
+
+    echo "Download failed (${attempt}/${attempts}): ${url}"
+    sleep $((attempt * 5))
+  done
+
+  echo "Download failed after ${attempts} attempts: ${url}"
+  return 1
 }
 
 CONTROL_PLANE_IP="$(metadata_value control-plane-ip)"
@@ -76,10 +95,10 @@ crictl_archive="crictl-${CRICTL_VERSION}-linux-${crictl_arch}.tar.gz"
 crictl_release_url="https://github.com/kubernetes-sigs/cri-tools/releases/download/${CRICTL_VERSION}"
 crictl_tmp_dir="$(mktemp -d)"
 
-curl -fsSL "${crictl_release_url}/${crictl_archive}" \
-  -o "${crictl_tmp_dir}/${crictl_archive}"
-curl -fsSL "${crictl_release_url}/${crictl_archive}.sha256" \
-  -o "${crictl_tmp_dir}/${crictl_archive}.sha256"
+download_file "${crictl_release_url}/${crictl_archive}" \
+  "${crictl_tmp_dir}/${crictl_archive}"
+download_file "${crictl_release_url}/${crictl_archive}.sha256" \
+  "${crictl_tmp_dir}/${crictl_archive}.sha256"
 
 (
   cd "${crictl_tmp_dir}"
@@ -134,6 +153,33 @@ if [[ ! -f /etc/kubernetes/kubelet.conf ]]; then
 else
   echo "Worker already has kubelet configuration; skipping kubeadm join."
 fi
+
+echo "Installing cluster admin kubeconfig for exam-like kubectl access"
+for attempt in {1..120}; do
+  if curl -fsS "http://${CONTROL_PLANE_IP}:8080/admin.conf" -o /tmp/admin.conf; then
+    mkdir -p /root/.kube /etc/kubernetes
+    install -m 0600 /tmp/admin.conf /etc/kubernetes/admin.conf
+    install -m 0600 /tmp/admin.conf /root/.kube/config
+
+    for home_dir in /home/*; do
+      [[ -d "${home_dir}" ]] || continue
+      user_name="$(basename "${home_dir}")"
+      mkdir -p "${home_dir}/.kube"
+      install -m 0600 -o "${user_name}" -g "${user_name}" /tmp/admin.conf "${home_dir}/.kube/config" \
+        || install -m 0600 /tmp/admin.conf "${home_dir}/.kube/config"
+    done
+
+    rm -f /tmp/admin.conf
+    break
+  fi
+
+  if [[ "${attempt}" -eq 120 ]]; then
+    echo "Timed out waiting for admin kubeconfig"
+    exit 1
+  fi
+
+  sleep 5
+done
 
 touch "${COMPLETION_MARKER}"
 echo "Worker bootstrap completed successfully"
